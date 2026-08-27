@@ -1,0 +1,34 @@
+# Blue Page 개발자 안내
+
+## 요구 사항
+
+- Windows 10/11 x64
+- .NET 8 SDK 이상
+
+## 소스 빌드
+
+```powershell
+cd src/BluePage
+dotnet build -c Release
+```
+
+## 배포 파일 생성
+
+```powershell
+cd src/BluePage
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish
+```
+
+## 로컬 설치
+
+프로젝트 루트에서 실행합니다.
+
+```powershell
+.\installer\install.ps1
+```
+
+## 기여
+
+버그와 기능 제안은 GitHub Issue로 등록해 주세요. 코드 변경은 별도 브랜치에서 작업한 뒤 Pull Request로 보내 주세요. 자세한 기준은 `CONTRIBUTING.txt`를 참고하세요.
+
+이 프로젝트는 MIT License로 배포됩니다.
