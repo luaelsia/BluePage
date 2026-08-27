@@ -12,15 +12,9 @@ Blue Page는 Windows에서 Office 문서를 Microsoft 365 웹 앱으로 열어 �
 
 Windows 10/11 x64와 .NET 8 SDK 이상이 필요합니다.
 
-```powershell
-cd src/BluePage
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish
-cd ../..
-./installer/install.ps1
-```
+설치 파일 : installer/install.ps1
 
 설치가 끝나면 탐색기에서 Office 문서를 우클릭하고 다음을 선택합니다.
-
 `연결 프로그램 → 다른 앱 선택 → Blue Page → 항상 이 앱 사용`
 
 ## 사용
@@ -32,9 +26,7 @@ cd ../..
 
 ## 제거
 
-```powershell
-./installer/uninstall.ps1
-```
+제거 파일 : installer/uninstall.ps1
 
 ## 개인정보
 
@@ -44,6 +36,4 @@ cd ../..
 
 ## 문의
 
-MiniWhaleLabs · [miniwhalelabs@gmail.com](mailto:miniwhalelabs@gmail.com)
-
-개발 및 설계 자료는 [`docs/DEVELOPMENT_NOTES.txt`](docs/DEVELOPMENT_NOTES.txt)에서 확인할 수 있습니다.
+MiniWhaleLabs · [miniwhalelabs@gmail.com]
