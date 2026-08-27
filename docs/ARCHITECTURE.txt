@@ -1,0 +1,63 @@
+# 아키텍처
+
+## 전체 흐름
+
+```
+탐색기에서 .docx 더블클릭
+  → BluePage.exe "C:\Docs\Report.docx"
+  → DocumentTypeCatalog: 확장자 → Office 앱 판별
+  → SyncCoordinator.PrepareForOpenAsync
+      → UploadManifest에서 이전 업로드 기록 조회
+      → 없으면: GraphAuthService(MSAL+WAM)로 토큰 획득 → OneDriveUploadService로 App Folder에 업로드
+      → 있으면: 로컬 mtime / 온라인 lastModifiedDateTime 비교 → 4가지 상태 중 하나로 분기(아래 참고)
+  → 반환된 webUrl을 Process.Start(UseShellExecute=true)로 기본 브라우저에 전달
+  → 로그 기록
+```
+
+## 계층 구조
+
+| 계층 | 네임스페이스 | 책임 |
+|---|---|---|
+| 진입점 | `Microsoft365OfficeWebLauncher` (Program.cs) | CLI 파싱, 전역 예외 처리, DI 없이 수동 조립 |
+| Core | `Microsoft365OfficeWebLauncher.Core` | 확장자 판별(`DocumentTypeCatalog`), 흐름 조율(`LaunchOrchestrator`) |
+| Auth | `Microsoft365OfficeWebLauncher.Auth` | MSAL 기반 토큰 획득(`GraphAuthService`), Graph SDK용 토큰 공급자(`MsalAccessTokenProvider`) |
+| OneDrive | `Microsoft365OfficeWebLauncher.OneDrive` | 업로드/다운로드(`OneDriveUploadService`), 로컬↔온라인 매핑(`UploadManifest`), 동기화 판정(`SyncCoordinator`) |
+| Config | `Microsoft365OfficeWebLauncher.Config` | 설정 로드/병합(`ConfigLoader`), 모델(`AppConfig`) |
+| Registry | `Microsoft365OfficeWebLauncher.Registry` | 파일 연결 등록/해제(`FileAssociationRegistrar`) |
+| Logging | `Microsoft365OfficeWebLauncher.Logging` | 파일 로거(`FileLogger`) |
+
+의도적으로 DI 컨테이너(예: Microsoft.Extensions.DependencyInjection)를 쓰지 않았다. 단일 진입점에서 필요한 서비스를 한 번씩 `new`로 조립하는 것으로 충분한 규모이며, 외부 라이브러리를 최소화하라는 요구사항에도 부합한다.
+
+## 인증 (Auth)
+
+- `PublicClientApplicationBuilder` + `.WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows))`로 WAM 브로커를 사용한다.
+- 토큰 획득 순서: ① 캐시된 계정으로 `AcquireTokenSilent` → ② 실패 시 `PublicClientApplication.OperatingSystemAccount`로 `AcquireTokenSilent`(현재 Windows 로그인 계정 자동 인식) → ③ 그래도 실패하면 `AcquireTokenInteractive`(1회 로그인 팝업).
+- `sharedPcMode = false`(개인 PC, 기본값): `Microsoft.Identity.Client.Extensions.Msal`의 `MsalCacheHelper`로 토큰 캐시를 `%LOCALAPPDATA%\Microsoft365OfficeWebLauncher\tokencache`에 Windows DPAPI로 암호화 저장 → 다음 실행부터 사일런트 SSO.
+- `sharedPcMode = true`(공용 PC): 캐시를 등록하지 않아 메모리에만 존재 → 프로세스 종료(런처는 매번 새 프로세스로 실행됨) 시 자동 소멸 → 매번 대화형 로그인.
+
+## OneDrive 업로드/다운로드
+
+Graph SDK v5(Kiota 생성)는 `/me/drive`에서 `GetAsync`만 제공하므로, 하위 리소스(Items/Special)에 접근하려면 먼저 `Me.Drive.GetAsync()`로 드라이브 Id를 얻은 뒤 `graphClient.Drives[driveId]...` 경로를 사용해야 한다(`OneDriveUploadService`가 내부적으로 처리, 결과를 캐시).
+
+App Folder(`/drives/{id}/special/approot`)의 driveItem Id를 얻은 뒤:
+- 4MB 이하: `Content.PutAsync(stream)`으로 단순 업로드
+- 4MB 초과: `CreateUploadSession.PostAsync(...)` + `LargeFileUploadTask<DriveItem>`으로 청크 업로드(320KiB 배수)
+
+## Sync-back (8장, 설계 계획 문서 참고)
+
+`SyncCoordinator`가 로컬 파일의 `mtime`과 Graph의 `lastModifiedDateTime`을 마지막으로 알려진 동기화 시각과 비교해 4가지 상태(`NewUpload`, `NoChange`, `RemoteOnlyChanged`, `LocalOnlyChanged`, `Conflict`)로 분류하고, 온라인 전용 변경은 자동 다운로드, 충돌은 별도 사본으로 안전하게 분리한다. 판단 근거는 `UploadManifest`(`%LOCALAPPDATA%\Microsoft365OfficeWebLauncher\manifest.json`)에 저장된다.
+
+## 레지스트리 등록
+
+`HKEY_CURRENT_USER`에만 기록하므로 **관리자 권한이 필요 없다**.
+
+- `HKCU\Software\Classes\Applications\BluePage.exe\shell\open\command` — "연결 프로그램" 목록에 노출
+- `HKCU\Software\Classes\BluePage<확장자>` — 확장자별 ProgID
+- `HKCU\Software\BluePage\Capabilities\FileAssociations` — 확장자 → ProgID 매핑
+- `HKCU\Software\RegisteredApplications` — Windows 설정 앱의 "기본 앱" 목록에 노출
+
+Windows 8 이후 정책상 앱이 스스로를 기본값으로 강제 지정할 수 없어, 사용자가 "연결 프로그램" 또는 "기본 앱" 설정에서 1회 확인해야 한다.
+
+## 확장성
+
+`appsettings.json`의 `documentTypes` 배열에 항목을 추가하면(코드 변경 없이) 새로운 확장자/Office 앱을 지원할 수 있다. `DocumentTypeCatalog`가 시작 시 이 배열을 읽어 확장자→앱 매핑 딕셔너리를 구성한다.

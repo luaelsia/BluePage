@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Microsoft365OfficeWebLauncher</RootNamespace>
+    <AssemblyName>BluePage</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12.0</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>..\..\resources\BluePage.ico</ApplicationIcon>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <Product>Blue Page</Product>
+    <Company>MiniWhaleLabs</Company>
+    <Authors>MiniWhaleLabs</Authors>
+    <Description>Windows 탐색기에서 Office 문서를 더블클릭하면 Microsoft Office for the web에서 여는 문서 런처</Description>
+    <Copyright>Copyright © MiniWhaleLabs</Copyright>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.66.2" />
+    <PackageReference Include="Microsoft.Identity.Client.Broker" Version="4.66.2" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.66.2" />
+    <PackageReference Include="Microsoft.Graph" Version="5.68.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\resources\appsettings.default.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>appsettings.default.json</Link>
+    </None>
+  </ItemGroup>
+
+</Project>
