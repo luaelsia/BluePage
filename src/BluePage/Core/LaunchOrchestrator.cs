@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Microsoft365OfficeWebLauncher.Cloud;
+using Microsoft365OfficeWebLauncher.Config;
 using Microsoft365OfficeWebLauncher.Logging;
 using Microsoft365OfficeWebLauncher.OneDrive;
 using Microsoft365OfficeWebLauncher.UI;
@@ -13,17 +15,20 @@ public sealed class LaunchOrchestrator
     private readonly UploadManifest _manifest;
     private readonly FileLogger _logger;
     private readonly DeferredSyncRegistry _deferredSyncRegistry;
+    private readonly AppConfig _config;
 
     public LaunchOrchestrator(
         DocumentTypeCatalog catalog,
         SyncCoordinator syncCoordinator,
         UploadManifest manifest,
-        FileLogger logger)
+        FileLogger logger,
+        AppConfig config)
     {
         _catalog = catalog;
         _syncCoordinator = syncCoordinator;
         _manifest = manifest;
         _logger = logger;
+        _config = config;
         _deferredSyncRegistry = new DeferredSyncRegistry();
     }
 
@@ -48,10 +53,17 @@ public sealed class LaunchOrchestrator
         _logger.Info($"열기 시작: {fullPath} ({appDefinition.OfficeApp})");
         _deferredSyncRegistry.Resume(fullPath);
 
+        var provider = SelectProvider(fullPath);
+        if (provider is null)
+        {
+            _logger.Info($"사용자가 웹 Office 선택을 취소했습니다: {fullPath}");
+            return 0;
+        }
+
         SyncResult result;
         try
         {
-            result = await _syncCoordinator.PrepareForOpenAsync(fullPath, ct);
+            result = await _syncCoordinator.PrepareForOpenAsync(fullPath, ct, provider);
         }
         catch (Exception ex) when (GraphErrorHelper.IsResourceLocked(ex))
         {
@@ -60,7 +72,7 @@ public sealed class LaunchOrchestrator
             using var waitDialog = new WebDocumentUnlockDialog(
                 fullPath,
                 checkCt => _syncCoordinator.GetRemoteLockStateAsync(fullPath, checkCt),
-                retryCt => _syncCoordinator.PrepareForOpenAsync(fullPath, retryCt));
+                retryCt => _syncCoordinator.PrepareForOpenAsync(fullPath, retryCt, provider));
             var dialogResult = waitDialog.ShowDialog();
 
             if (dialogResult == DialogResult.Cancel ||
@@ -244,6 +256,33 @@ public sealed class LaunchOrchestrator
 
     /// <summary>GUI 프로세스에서만 실제 토스트 알림을 연결한다(헤드리스 오픈/CLI는 호출하지 않음).</summary>
     public void AttachActivityReporter(ISyncActivityReporter reporter) => _syncCoordinator.AttachActivityReporter(reporter);
+
+    private CloudProvider? SelectProvider(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        var preference = _config.DocumentProviderPreferences.TryGetValue(extension, out var perExtension) &&
+                         !string.Equals(perExtension, "Default", StringComparison.OrdinalIgnoreCase)
+            ? perExtension
+            : _config.PreferredCloudProvider;
+
+        if (CloudProviderNames.TryParse(preference, out var configured))
+        {
+            return configured;
+        }
+
+        using var dialog = new CloudProviderDialog(filePath);
+        if (dialog.ShowDialog() != DialogResult.OK || dialog.SelectedProvider is null)
+        {
+            return null;
+        }
+
+        if (dialog.RememberAsDefault)
+        {
+            _config.PreferredCloudProvider = dialog.SelectedProvider.Value.ToString();
+            ConfigLoader.Save(_config);
+        }
+        return dialog.SelectedProvider;
+    }
 
     private static void OpenInBrowser(string url)
     {

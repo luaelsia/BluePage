@@ -7,6 +7,17 @@ public sealed class AppConfig
     [JsonPropertyName("auth")]
     public AuthConfig Auth { get; set; } = new();
 
+    [JsonPropertyName("googleAuth")]
+    public GoogleAuthConfig GoogleAuth { get; set; } = new();
+
+    /// <summary>"Ask" / "Microsoft" / "Google". Ask이면 문서를 열 때마다 선택한다.</summary>
+    [JsonPropertyName("preferredCloudProvider")]
+    public string PreferredCloudProvider { get; set; } = "Ask";
+
+    /// <summary>확장자별 "Default" / "Ask" / "Microsoft" / "Google" 재정의.</summary>
+    [JsonPropertyName("documentProviderPreferences")]
+    public Dictionary<string, string> DocumentProviderPreferences { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("sharedPcMode")]
     public bool SharedPcMode { get; set; }
 
@@ -42,6 +53,18 @@ public sealed class AuthConfig
 
     [JsonPropertyName("scopes")]
     public List<string> Scopes { get; set; } = new() { "Files.ReadWrite.AppFolder" };
+}
+
+public sealed class GoogleAuthConfig
+{
+    [JsonPropertyName("clientId")]
+    public string ClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("clientSecret")]
+    public string ClientSecret { get; set; } = string.Empty;
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; set; } = new() { "https://www.googleapis.com/auth/drive.file" };
 }
 
 public sealed class DocumentTypeConfig

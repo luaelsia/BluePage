@@ -6,6 +6,7 @@ using Microsoft.Kiota.Abstractions.Authentication;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft365OfficeWebLauncher.Auth;
+using Microsoft365OfficeWebLauncher.Cloud;
 using Microsoft365OfficeWebLauncher.Logging;
 
 namespace Microsoft365OfficeWebLauncher.OneDrive;
@@ -19,7 +20,7 @@ namespace Microsoft365OfficeWebLauncher.OneDrive;
 /// 드라이브 Id는 /me/drive를 거치지 않고 /me/drive/special/approot 응답의 ParentReference.DriveId에서 직접 얻는다
 /// (RequestAdapter로 저수준 호출).
 /// </summary>
-public sealed class OneDriveUploadService
+public sealed class OneDriveUploadService : ICloudDriveService
 {
     private const long SimpleUploadMaxBytes = 4L * 1024 * 1024; // Graph 문서 기준 단순 업로드 한도
     private const int UploadSliceSize = 320 * 1024; // 320KiB의 배수여야 함(Graph 요구사항)
@@ -31,6 +32,11 @@ public sealed class OneDriveUploadService
     private string? _driveId;
     private string? _appRootId;
     private string? _appRootWebUrl;
+    private string? _bluePageFolderId;
+    private string? _bluePageFolderWebUrl;
+
+    public CloudProvider Provider => CloudProvider.Microsoft;
+    public string DisplayName => "Microsoft 365";
 
     public OneDriveUploadService(GraphAuthService authService, FileLogger logger)
     {
@@ -88,11 +94,11 @@ public sealed class OneDriveUploadService
 
     public async Task<DriveItem> CreateInAppFolderAsync(string localFilePath, CancellationToken ct)
     {
-        var (driveId, appRootId) = await GetAppFolderReferenceAsync(ct);
+        var (driveId, appRootId) = await GetBluePageFolderReferenceAsync(ct);
         var fileName = Path.GetFileName(localFilePath);
         var fileInfo = new FileInfo(localFilePath);
 
-        _logger.Info($"OneDrive App Folder에 새로 업로드: {fileName} ({fileInfo.Length:N0} bytes)");
+        _logger.Info($"OneDrive App Folder/BluePage에 새로 업로드: {fileName} ({fileInfo.Length:N0} bytes)");
 
         if (fileInfo.Length <= SimpleUploadMaxBytes)
         {
@@ -132,9 +138,22 @@ public sealed class OneDriveUploadService
 
     public async Task<DriveItem> GetMetadataAsync(string driveItemId, CancellationToken ct)
     {
-        var (driveId, _) = await GetAppFolderReferenceAsync(ct);
+        var (driveId, bluePageFolderId) = await GetBluePageFolderReferenceAsync(ct);
         var item = await _graphClient.Drives[driveId].Items[driveItemId].GetAsync(cancellationToken: ct);
-        return item ?? throw new InvalidOperationException($"드라이브 항목을 찾을 수 없습니다: {driveItemId}");
+        if (item is null)
+        {
+            throw new InvalidOperationException($"드라이브 항목을 찾을 수 없습니다: {driveItemId}");
+        }
+
+        // 이전 버전이 App Folder 루트에 올린 파일도 최초 조회 시 BluePage 하위 폴더로 이동한다.
+        if (!string.Equals(item.ParentReference?.Id, bluePageFolderId, StringComparison.OrdinalIgnoreCase))
+        {
+            item = await _graphClient.Drives[driveId].Items[driveItemId].PatchAsync(
+                new DriveItem { ParentReference = new ItemReference { Id = bluePageFolderId } },
+                cancellationToken: ct) ?? item;
+            _logger.Info($"기존 OneDrive 항목을 App Folder/BluePage로 이동: {driveItemId}");
+        }
+        return item;
     }
 
     public async Task DownloadContentAsync(string driveItemId, string destinationPath, CancellationToken ct)
@@ -240,10 +259,72 @@ public sealed class OneDriveUploadService
         return (_driveId, _appRootId);
     }
 
+    private async Task<(string DriveId, string FolderId)> GetBluePageFolderReferenceAsync(CancellationToken ct)
+    {
+        var (driveId, appRootId) = await GetAppFolderReferenceAsync(ct);
+        if (_bluePageFolderId is not null)
+        {
+            return (driveId, _bluePageFolderId);
+        }
+
+        try
+        {
+            var existing = await _graphClient.Drives[driveId].Items[appRootId]
+                .ItemWithPath("BluePage").GetAsync(cancellationToken: ct);
+            if (existing?.Id is not null)
+            {
+                _bluePageFolderId = existing.Id;
+                _bluePageFolderWebUrl = existing.WebUrl;
+                return (driveId, _bluePageFolderId);
+            }
+        }
+        catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // 폴더가 없으면 바로 아래에서 생성한다.
+        }
+
+        var created = await _graphClient.Drives[driveId].Items[appRootId].Children.PostAsync(
+            new DriveItem
+            {
+                Name = "BluePage",
+                Folder = new Folder(),
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["@microsoft.graph.conflictBehavior"] = "fail"
+                }
+            },
+            cancellationToken: ct)
+            ?? throw new InvalidOperationException("OneDrive App Folder 안에 BluePage 폴더를 만들지 못했습니다.");
+
+        _bluePageFolderId = created.Id ?? throw new InvalidOperationException("BluePage 폴더 ID가 비어 있습니다.");
+        _bluePageFolderWebUrl = created.WebUrl;
+        _logger.Info("OneDrive App Folder 안에 BluePage 폴더 생성 완료");
+        return (driveId, _bluePageFolderId);
+    }
+
     /// <summary>업로드된 파일이 실제로 쌓이는 OneDrive App Folder를 브라우저에서 열 수 있는 링크를 반환한다.</summary>
     public async Task<string> GetAppFolderWebUrlAsync(CancellationToken ct)
     {
-        await GetAppFolderReferenceAsync(ct);
-        return _appRootWebUrl ?? throw new InvalidOperationException("App Folder의 webUrl을 확인할 수 없습니다.");
+        await GetBluePageFolderReferenceAsync(ct);
+        return _bluePageFolderWebUrl ?? throw new InvalidOperationException("BluePage 폴더의 webUrl을 확인할 수 없습니다.");
     }
+
+    public async Task<CloudFileMetadata> CreateAsync(string localFilePath, CancellationToken ct) =>
+        ToCloudMetadata(await CreateInAppFolderAsync(localFilePath, ct));
+
+    public async Task<CloudFileMetadata> UpdateAsync(string remoteFileId, string localFilePath, CancellationToken ct) =>
+        ToCloudMetadata(await UpdateContentAsync(remoteFileId, localFilePath, ct));
+
+    async Task<CloudFileMetadata> ICloudDriveService.GetMetadataAsync(string remoteFileId, CancellationToken ct) =>
+        ToCloudMetadata(await GetMetadataAsync(remoteFileId, ct));
+
+    public Task DownloadAsync(string remoteFileId, string destinationPath, CancellationToken ct) =>
+        DownloadContentAsync(remoteFileId, destinationPath, ct);
+
+    public Task<string> GetBluePageFolderWebUrlAsync(CancellationToken ct) => GetAppFolderWebUrlAsync(ct);
+
+    private static CloudFileMetadata ToCloudMetadata(DriveItem item) => new(
+        item.Id ?? throw new InvalidOperationException("OneDrive 파일 ID가 비어 있습니다."),
+        item.WebUrl ?? string.Empty,
+        item.LastModifiedDateTime ?? DateTimeOffset.UtcNow);
 }

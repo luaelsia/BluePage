@@ -5,6 +5,9 @@ namespace Microsoft365OfficeWebLauncher.OneDrive;
 
 public sealed class ManifestEntry
 {
+    [JsonPropertyName("provider")]
+    public string Provider { get; set; } = "Microsoft";
+
     [JsonPropertyName("driveItemId")]
     public string DriveItemId { get; set; } = string.Empty;
 
@@ -14,6 +17,55 @@ public sealed class ManifestEntry
     [JsonPropertyName("lastKnownLocalWriteUtc")]
     public DateTimeOffset LastKnownLocalWriteUtc { get; set; }
 
+    [JsonPropertyName("lastKnownRemoteModifiedUtc")]
+    public DateTimeOffset LastKnownRemoteModifiedUtc { get; set; }
+
+    [JsonPropertyName("remotes")]
+    public Dictionary<string, RemoteManifestEntry> Remotes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void SaveActiveRemote()
+    {
+        if (string.IsNullOrWhiteSpace(DriveItemId))
+        {
+            return;
+        }
+        Remotes[Provider] = new RemoteManifestEntry
+        {
+            DriveItemId = DriveItemId,
+            WebUrl = WebUrl,
+            LastKnownLocalWriteUtc = LastKnownLocalWriteUtc,
+            LastKnownRemoteModifiedUtc = LastKnownRemoteModifiedUtc
+        };
+    }
+
+    public bool Activate(string provider)
+    {
+        SaveActiveRemote();
+        Provider = provider;
+        if (!Remotes.TryGetValue(provider, out var remote))
+        {
+            DriveItemId = string.Empty;
+            WebUrl = string.Empty;
+            LastKnownLocalWriteUtc = default;
+            LastKnownRemoteModifiedUtc = default;
+            return false;
+        }
+        DriveItemId = remote.DriveItemId;
+        WebUrl = remote.WebUrl;
+        LastKnownLocalWriteUtc = remote.LastKnownLocalWriteUtc;
+        LastKnownRemoteModifiedUtc = remote.LastKnownRemoteModifiedUtc;
+        return true;
+    }
+}
+
+public sealed class RemoteManifestEntry
+{
+    [JsonPropertyName("driveItemId")]
+    public string DriveItemId { get; set; } = string.Empty;
+    [JsonPropertyName("webUrl")]
+    public string WebUrl { get; set; } = string.Empty;
+    [JsonPropertyName("lastKnownLocalWriteUtc")]
+    public DateTimeOffset LastKnownLocalWriteUtc { get; set; }
     [JsonPropertyName("lastKnownRemoteModifiedUtc")]
     public DateTimeOffset LastKnownRemoteModifiedUtc { get; set; }
 }
@@ -97,7 +149,11 @@ public sealed class UploadManifest
 
     public IReadOnlyDictionary<string, ManifestEntry> AllEntries => _entries;
 
-    public void Set(string localFilePath, ManifestEntry entry) => _entries[NormalizeKey(localFilePath)] = entry;
+    public void Set(string localFilePath, ManifestEntry entry)
+    {
+        entry.SaveActiveRemote();
+        _entries[NormalizeKey(localFilePath)] = entry;
+    }
 
     public void Remove(string localFilePath) => _entries.Remove(NormalizeKey(localFilePath));
 

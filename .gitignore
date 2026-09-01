@@ -7,4 +7,5 @@ installer/republish-and-restart.ps1
 tools/
 resources/BluePage.png
 resources/icons/
+secret/
 *.user

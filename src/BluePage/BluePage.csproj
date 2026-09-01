@@ -19,7 +19,7 @@
     <Product>Blue Page</Product>
     <Company>MiniWhaleLabs</Company>
     <Authors>MiniWhaleLabs</Authors>
-    <Description>Windows 탐색기에서 Office 문서를 더블클릭하면 Microsoft Office for the web에서 여는 문서 런처</Description>
+    <Description>Windows 탐색기에서 Office 문서를 Microsoft 365 또는 Google Workspace로 여는 문서 런처</Description>
     <Copyright>Copyright © MiniWhaleLabs</Copyright>
     <Version>1.0.0</Version>
   </PropertyGroup>
@@ -29,6 +29,8 @@
     <PackageReference Include="Microsoft.Identity.Client.Broker" Version="4.66.2" />
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.66.2" />
     <PackageReference Include="Microsoft.Graph" Version="5.68.0" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.69.0.3740" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,6 +4,8 @@ using System.Threading;
 using Microsoft365OfficeWebLauncher.Auth;
 using Microsoft365OfficeWebLauncher.Config;
 using Microsoft365OfficeWebLauncher.Core;
+using Microsoft365OfficeWebLauncher.Cloud;
+using Microsoft365OfficeWebLauncher.GoogleDrive;
 using Microsoft365OfficeWebLauncher.Logging;
 using Microsoft365OfficeWebLauncher.OneDrive;
 using Microsoft365OfficeWebLauncher.Registry;
@@ -20,7 +22,9 @@ public sealed class LauncherForm : Form
     private readonly AppConfig _config;
     private readonly FileLogger _logger;
     private readonly GraphAuthService _authService;
+    private readonly GoogleAuthService _googleAuthService;
     private readonly OneDriveUploadService _uploadService;
+    private readonly GoogleDriveService _googleDriveService;
     private readonly UploadManifest _manifest;
     private readonly LaunchOrchestrator _orchestrator;
     private readonly FileAssociationRegistrar _registrar;
@@ -30,6 +34,8 @@ public sealed class LauncherForm : Form
 
     private Label _accountStatusLabel = null!;
     private Button _accountActionButton = null!;
+    private Label _googleAccountStatusLabel = null!;
+    private Button _googleAccountActionButton = null!;
     private Label _fileAssocStatusLabel = null!;
     private Button _fileAssocActionButton = null!;
     private Label _syncStatusLabel = null!;
@@ -40,10 +46,13 @@ public sealed class LauncherForm : Form
     private Label _sharedPcNoticeLabel = null!;
     private CheckBox _showToastCheckBox = null!;
     private ComboBox _themeCombo = null!;
+    private ComboBox _providerCombo = null!;
+    private readonly Dictionary<string, ComboBox> _extensionProviderCombos = new(StringComparer.OrdinalIgnoreCase);
     private NumericUpDown _syncIntervalInput = null!;
     private NotifyIcon _trayIcon = null!;
     private System.Windows.Forms.Timer _backgroundSyncTimer = null!;
     private ToolStripMenuItem _trayAccountItem = null!;
+    private ToolStripMenuItem _trayGoogleAccountItem = null!;
     private ToolStripMenuItem _trayFileAssocItem = null!;
     private ToolStripMenuItem _trayAutoStartItem = null!;
     private ToolStripMenuItem _trayStartMinimizedItem = null!;
@@ -53,11 +62,13 @@ public sealed class LauncherForm : Form
     private EventWaitHandle _showWindowEvent = null!;
     private RegisteredWaitHandle? _showWindowRegisteredWait;
     private SyncActivityToast _activityToast = null!;
+    private ModernTabControl _mainTabs = null!;
 
     private const int MinSyncIntervalSeconds = 1;
     private const int MaxSyncIntervalSeconds = 600;
 
     private bool _hasCachedAccount;
+    private bool _hasCachedGoogleAccount;
     private bool _isExiting;
     private bool _syncInProgress;
 
@@ -65,7 +76,9 @@ public sealed class LauncherForm : Form
         AppConfig config,
         FileLogger logger,
         GraphAuthService authService,
+        GoogleAuthService googleAuthService,
         OneDriveUploadService uploadService,
+        GoogleDriveService googleDriveService,
         UploadManifest manifest,
         LaunchOrchestrator orchestrator,
         FileAssociationRegistrar registrar,
@@ -76,7 +89,9 @@ public sealed class LauncherForm : Form
         _config = config;
         _logger = logger;
         _authService = authService;
+        _googleAuthService = googleAuthService;
         _uploadService = uploadService;
+        _googleDriveService = googleDriveService;
         _manifest = manifest;
         _orchestrator = orchestrator;
         _registrar = registrar;
@@ -106,6 +121,7 @@ public sealed class LauncherForm : Form
         RefreshSyncStatus();
         LoadAutoStartState();
         await RefreshAccountStatusAsync();
+        await RefreshGoogleAccountStatusAsync();
     }
 
     private void OnShown(object? sender, EventArgs e)
@@ -143,7 +159,7 @@ public sealed class LauncherForm : Form
             ColumnCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Width = 570
+            Width = 720
         };
         Controls.Add(root);
 
@@ -157,18 +173,75 @@ public sealed class LauncherForm : Form
         root.Controls.Add(heading);
         root.Controls.Add(new Label
         {
-            Text = "Office 문서를 웹에서 열고 동기화합니다.",
+            Text = "Office 문서를 Microsoft 365 또는 Google Workspace에서 열고 동기화합니다.",
             AutoSize = true,
             ForeColor = AppTheme.Current.TextSecondary,
             Tag = ThemeApplier.SecondaryTag,
-            Margin = new Padding(3, 0, 0, 18)
+            Margin = new Padding(3, 0, 0, 14)
         });
 
-        root.Controls.Add(BuildSectionCard("연결 상태", BuildStatusGroup()));
-        root.Controls.Add(BuildSectionCard("환경 설정", BuildSettingsGroup()));
-        root.Controls.Add(BuildSectionCard("바로가기", BuildShortcutBar()));
+        root.Controls.Add(BuildMainTabs());
         root.Controls.Add(BuildBrandFooter());
     }
+
+    private ModernTabControl BuildMainTabs()
+    {
+        _mainTabs = new ModernTabControl
+        {
+            Width = 672,
+            Height = 430,
+            Margin = new Padding(0)
+        };
+
+        _mainTabs.AddTab("일반", BuildScrollableTabContent(BuildGeneralTab()));
+        _mainTabs.AddTab("문서 연결", BuildScrollableTabContent(BuildDocumentConnectionTab()));
+        _mainTabs.AddTab("설정", BuildScrollableTabContent(BuildSettingsTab()));
+        return _mainTabs;
+    }
+
+    private static Control BuildScrollableTabContent(Control content)
+    {
+        var host = new Panel { AutoScroll = true, BackColor = AppTheme.Current.Background };
+        content.Dock = DockStyle.Top;
+        host.Controls.Add(content);
+        return host;
+    }
+
+    private Control BuildGeneralTab()
+    {
+        var layout = BuildTabLayout();
+        layout.Controls.Add(BuildSectionTitle("연결 상태"));
+        layout.Controls.Add(BuildStatusGroup());
+        layout.Controls.Add(BuildSectionTitle("바로가기", 18));
+        layout.Controls.Add(BuildGeneralShortcutBar());
+        return layout;
+    }
+
+    private Control BuildSettingsTab()
+    {
+        var layout = BuildTabLayout();
+        layout.Controls.Add(BuildSectionTitle("환경 설정"));
+        layout.Controls.Add(BuildSettingsGroup());
+        layout.Controls.Add(BuildSectionTitle("관리", 18));
+        layout.Controls.Add(BuildSettingsShortcutBar());
+        return layout;
+    }
+
+    private static TableLayoutPanel BuildTabLayout() => new()
+    {
+        ColumnCount = 1,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        Padding = new Padding(2)
+    };
+
+    private static Label BuildSectionTitle(string text, int topMargin = 0) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        Font = new Font("Segoe UI Variable Text Semibold", 11F, FontStyle.Bold),
+        Margin = new Padding(0, topMargin, 0, 12)
+    };
 
     private static Control BuildSectionCard(string title, Control content)
     {
@@ -221,7 +294,7 @@ public sealed class LauncherForm : Form
         var status = new TableLayoutPanel
         {
             ColumnCount = 3,
-            RowCount = 3,
+            RowCount = 4,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink
         };
@@ -229,26 +302,33 @@ public sealed class LauncherForm : Form
         status.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         status.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        status.Controls.Add(new Label { Text = "계정", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 0);
+        status.Controls.Add(new Label { Text = "Microsoft", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 0);
         _accountStatusLabel = new Label { Text = "확인 중…", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) };
         status.Controls.Add(_accountStatusLabel, 1, 0);
         _accountActionButton = CreateModernButton("지금 로그인");
         _accountActionButton.Click += async (_, _) => await OnAccountActionAsync();
         status.Controls.Add(_accountActionButton, 2, 0);
 
-        status.Controls.Add(new Label { Text = "파일 연결", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 1);
+        status.Controls.Add(new Label { Text = "Google (테스트)", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 1);
+        _googleAccountStatusLabel = new Label { Text = "확인 중…", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) };
+        status.Controls.Add(_googleAccountStatusLabel, 1, 1);
+        _googleAccountActionButton = CreateModernButton("지금 로그인");
+        _googleAccountActionButton.Click += async (_, _) => await OnGoogleAccountActionAsync();
+        status.Controls.Add(_googleAccountActionButton, 2, 1);
+
+        status.Controls.Add(new Label { Text = "파일 연결", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 2);
         _fileAssocStatusLabel = new Label { Text = "-", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) };
-        status.Controls.Add(_fileAssocStatusLabel, 1, 1);
+        status.Controls.Add(_fileAssocStatusLabel, 1, 2);
         _fileAssocActionButton = CreateModernButton("해제");
         _fileAssocActionButton.Click += (_, _) => OnFileAssocActionClicked();
-        status.Controls.Add(_fileAssocActionButton, 2, 1);
+        status.Controls.Add(_fileAssocActionButton, 2, 2);
 
-        status.Controls.Add(new Label { Text = "동기화", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 2);
+        status.Controls.Add(new Label { Text = "동기화", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) }, 0, 3);
         _syncStatusLabel = new Label { Text = "-", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 6) };
-        status.Controls.Add(_syncStatusLabel, 1, 2);
+        status.Controls.Add(_syncStatusLabel, 1, 3);
         _syncActionButton = CreateModernButton("동기화 검토…");
         _syncActionButton.Click += async (_, _) => await OnSyncActionAsync();
-        status.Controls.Add(_syncActionButton, 2, 2);
+        status.Controls.Add(_syncActionButton, 2, 3);
 
         return status;
     }
@@ -288,6 +368,108 @@ public sealed class LauncherForm : Form
 
         return settings;
     }
+
+    private Control BuildDocumentConnectionTab()
+    {
+        var root = BuildTabLayout();
+        root.Controls.Add(BuildSectionTitle("기본 열기 방식"));
+
+        var defaultRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Margin = new Padding(0, 0, 0, 18) };
+        defaultRow.Controls.Add(new Label { Text = "모든 문서:", AutoSize = true, Width = 150, Margin = new Padding(0, 7, 8, 0) });
+        _providerCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+        _providerCombo.Items.AddRange(new object[] { "열 때마다 선택", "Microsoft 365", "Google Workspace (테스트)" });
+        _providerCombo.SelectedIndex = _config.PreferredCloudProvider.ToLowerInvariant() switch
+        {
+            "microsoft" => 1,
+            "google" => 2,
+            _ => 0
+        };
+        _providerCombo.SelectedIndexChanged += (_, _) =>
+        {
+            _config.PreferredCloudProvider = _providerCombo.SelectedIndex switch { 1 => "Microsoft", 2 => "Google", _ => "Ask" };
+            ConfigLoader.Save(_config);
+        };
+        defaultRow.Controls.Add(_providerCombo);
+        root.Controls.Add(defaultRow);
+
+        root.Controls.Add(BuildSectionTitle("확장자별 열기 방식"));
+        root.Controls.Add(new Label
+        {
+            Text = "기본값과 다른 서비스로 열 확장자만 개별 지정할 수 있습니다.",
+            AutoSize = true,
+            Tag = ThemeApplier.SecondaryTag,
+            Margin = new Padding(0, 0, 0, 12)
+        });
+
+        var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, CellBorderStyle = TableLayoutPanelCellBorderStyle.Single };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
+        grid.Controls.Add(CreateGridHeader("확장자"), 0, 0);
+        grid.Controls.Add(CreateGridHeader("문서 형식"), 1, 0);
+        grid.Controls.Add(CreateGridHeader("열기 방식"), 2, 0);
+
+        var definitions = _config.DocumentTypes
+            .SelectMany(type => type.Extensions.Select(extension => (Extension: NormalizeExtension(extension), type.OfficeApp)))
+            .OrderBy(item => item.OfficeApp)
+            .ThenBy(item => item.Extension)
+            .ToList();
+        var rowIndex = 1;
+        foreach (var definition in definitions)
+        {
+            grid.Controls.Add(CreateGridCell(definition.Extension), 0, rowIndex);
+            grid.Controls.Add(CreateGridCell(definition.OfficeApp), 1, rowIndex);
+
+            var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, Margin = new Padding(8, 5, 8, 5) };
+            combo.Items.AddRange(new object[] { "기본값 따름", "열 때마다 선택", "Microsoft 365", "Google Workspace (테스트)" });
+            var stored = _config.DocumentProviderPreferences.TryGetValue(definition.Extension, out var value) ? value : "Default";
+            combo.SelectedIndex = stored.ToLowerInvariant() switch
+            {
+                "ask" => 1,
+                "microsoft" => 2,
+                "google" => 3,
+                _ => 0
+            };
+            var extension = definition.Extension;
+            combo.SelectedIndexChanged += (_, _) =>
+            {
+                var preference = combo.SelectedIndex switch { 1 => "Ask", 2 => "Microsoft", 3 => "Google", _ => "Default" };
+                if (preference == "Default") _config.DocumentProviderPreferences.Remove(extension);
+                else _config.DocumentProviderPreferences[extension] = preference;
+                ConfigLoader.Save(_config);
+            };
+            _extensionProviderCombos[extension] = combo;
+            grid.Controls.Add(combo, 2, rowIndex++);
+        }
+        root.Controls.Add(grid);
+        return root;
+    }
+
+    private static Label CreateGridHeader(string text) => new()
+    {
+        Text = text,
+        AutoSize = false,
+        Dock = DockStyle.Fill,
+        Height = 32,
+        TextAlign = ContentAlignment.MiddleLeft,
+        Font = new Font("Segoe UI Variable Text", 9.5F, FontStyle.Bold),
+        Padding = new Padding(8, 0, 0, 0),
+        Margin = new Padding(0)
+    };
+
+    private static Label CreateGridCell(string text) => new()
+    {
+        Text = text,
+        AutoSize = false,
+        Dock = DockStyle.Fill,
+        Height = 36,
+        TextAlign = ContentAlignment.MiddleLeft,
+        Padding = new Padding(8, 0, 0, 0),
+        Margin = new Padding(0)
+    };
+
+    private static string NormalizeExtension(string extension) =>
+        (extension.StartsWith('.') ? extension : "." + extension).ToLowerInvariant();
 
     private FlowLayoutPanel BuildThemeRow()
     {
@@ -335,6 +517,7 @@ public sealed class LauncherForm : Form
     {
         var theme = AppTheme.Current;
         ThemeApplier.Apply(this, theme);
+        _mainTabs?.ApplyTheme(theme);
 
         if (_trayIcon.ContextMenuStrip is { } menu)
         {
@@ -402,7 +585,7 @@ public sealed class LauncherForm : Form
         return row;
     }
 
-    private FlowLayoutPanel BuildShortcutBar()
+    private FlowLayoutPanel BuildGeneralShortcutBar()
     {
         var bar = new FlowLayoutPanel
         {
@@ -422,16 +605,25 @@ public sealed class LauncherForm : Form
         openOneDriveButton.Click += async (_, _) => await OnOpenOneDriveClickedAsync();
         bar.Controls.Add(openOneDriveButton);
 
-        var logButton = CreateModernButton("로그 폴더 열기", 110);
+        var openGoogleDriveButton = CreateModernButton("Google Drive에서 보기…", 145);
+        openGoogleDriveButton.Margin = new Padding(0, 0, 8, 0);
+        openGoogleDriveButton.Click += async (_, _) => await OnOpenGoogleDriveClickedAsync();
+        bar.Controls.Add(openGoogleDriveButton);
+
+        return bar;
+    }
+
+    private FlowLayoutPanel BuildSettingsShortcutBar()
+    {
+        var bar = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true };
+        var logButton = CreateModernButton("로그 폴더 열기", 120);
         logButton.Margin = new Padding(0, 0, 8, 0);
         logButton.Click += (_, _) => OpenLogFolder();
         bar.Controls.Add(logButton);
-
-        var backupButton = CreateModernButton("백업 폴더 열기", 110);
+        var backupButton = CreateModernButton("백업 폴더 열기", 120);
         backupButton.Margin = new Padding(0);
         backupButton.Click += (_, _) => OpenBackupFolder();
         bar.Controls.Add(backupButton);
-
         return bar;
     }
 
@@ -491,6 +683,10 @@ public sealed class LauncherForm : Form
         _trayAccountItem.Click += async (_, _) => await OnAccountActionAsync();
         menu.Items.Add(_trayAccountItem);
 
+        _trayGoogleAccountItem = new ToolStripMenuItem("Google 로그인 (테스트)");
+        _trayGoogleAccountItem.Click += async (_, _) => await OnGoogleAccountActionAsync();
+        menu.Items.Add(_trayGoogleAccountItem);
+
         _trayFileAssocItem = new ToolStripMenuItem("파일 연결 등록");
         _trayFileAssocItem.Click += (_, _) => OnFileAssocActionClicked();
         menu.Items.Add(_trayFileAssocItem);
@@ -500,6 +696,7 @@ public sealed class LauncherForm : Form
 
         menu.Items.Add("동기화 검토…", null, async (_, _) => await OnSyncActionAsync());
         menu.Items.Add("OneDrive에서 보기…", null, async (_, _) => await OnOpenOneDriveClickedAsync());
+        menu.Items.Add("Google Drive에서 보기…", null, async (_, _) => await OnOpenGoogleDriveClickedAsync());
 
         var intervalMenu = new ToolStripMenuItem("자동 동기화 주기");
         foreach (var seconds in new[] { 30, 60, 180, 300, 600 })
@@ -567,6 +764,7 @@ public sealed class LauncherForm : Form
     private void RefreshTrayMenuState()
     {
         _trayAccountItem.Text = _hasCachedAccount ? "로그아웃" : "지금 로그인";
+        _trayGoogleAccountItem.Text = _hasCachedGoogleAccount ? "Google 로그아웃 (테스트)" : "Google 로그인 (테스트)";
 
         var registered = _registrar.IsRegistered();
         _trayFileAssocItem.Text = registered ? "파일 연결 해제" : "파일 연결 등록";
@@ -639,7 +837,7 @@ public sealed class LauncherForm : Form
 
     private async Task OnBackgroundSyncTickAsync()
     {
-        if (_syncInProgress || !_hasCachedAccount)
+        if (_syncInProgress || (!_hasCachedAccount && !_hasCachedGoogleAccount))
         {
             return;
         }
@@ -776,7 +974,7 @@ public sealed class LauncherForm : Form
     private async Task OnSharedPcToggledAsync()
     {
         var enablingSharedPc = _sharedPcCheckBox.Checked;
-        var hadCachedAccount = _hasCachedAccount;
+        var hadCachedAccount = _hasCachedAccount || _hasCachedGoogleAccount;
 
         _config.SharedPcMode = enablingSharedPc;
         ConfigLoader.Save(_config);
@@ -794,11 +992,24 @@ public sealed class LauncherForm : Form
             }
 
             GraphAuthService.ClearPersistedCache();
+            try
+            {
+                if (_hasCachedGoogleAccount)
+                {
+                    await _googleAuthService.SignOutAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"공용 PC 전환 중 Google 로그아웃 실패: {ex.Message}");
+            }
+            GoogleAuthService.ClearPersistedCache();
 
             _sharedPcNoticeLabel.Text = "저장돼 있던 로그인 정보를 삭제했습니다.";
             _sharedPcNoticeLabel.ForeColor = AppTheme.Current.Success;
             _sharedPcNoticeLabel.Visible = true;
             await RefreshAccountStatusAsync();
+            await RefreshGoogleAccountStatusAsync();
         }
         else
         {
@@ -851,6 +1062,63 @@ public sealed class LauncherForm : Form
         finally
         {
             _accountActionButton.Enabled = true;
+        }
+    }
+
+    private async Task RefreshGoogleAccountStatusAsync()
+    {
+        try
+        {
+            _hasCachedGoogleAccount = await _googleAuthService.HasCachedAccountAsync();
+            if (!_googleAuthService.IsConfigured)
+            {
+                _googleAccountStatusLabel.Text = "OAuth 설정 필요 · 테스트";
+                _googleAccountActionButton.Text = "설정 확인";
+                return;
+            }
+            _googleAccountStatusLabel.Text = _hasCachedGoogleAccount ? "● 로그인됨 · 테스트 OAuth" : "○ 로그인 안 됨 · 테스트 OAuth";
+            _googleAccountActionButton.Text = _hasCachedGoogleAccount ? "로그아웃" : "지금 로그인";
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Google 계정 상태 확인 실패: {ex.Message}");
+            _googleAccountStatusLabel.Text = "확인 실패";
+        }
+    }
+
+    private async Task OnGoogleAccountActionAsync()
+    {
+        if (!_googleAuthService.IsConfigured)
+        {
+            AppMessageDialog.Show(this,
+                "Google Cloud에서 데스크톱 OAuth 클라이언트를 만든 뒤 config.json의 googleAuth.clientId와 clientSecret을 입력해 주세요.",
+                AppBrand.Name, AppMessageKind.Warning);
+            return;
+        }
+
+        _googleAccountActionButton.Enabled = false;
+        var loggingOut = _hasCachedGoogleAccount;
+        _googleAccountStatusLabel.Text = loggingOut ? "로그아웃하는 중…" : "로그인하는 중…";
+        try
+        {
+            if (loggingOut)
+            {
+                await _googleAuthService.SignOutAsync();
+            }
+            else
+            {
+                await _googleAuthService.AcquireCredentialAsync();
+            }
+            await RefreshGoogleAccountStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(loggingOut ? "Google 로그아웃 실패" : "Google 로그인 실패", ex);
+            _googleAccountStatusLabel.Text = "Google 계정 처리 실패";
+        }
+        finally
+        {
+            _googleAccountActionButton.Enabled = true;
         }
     }
 
@@ -1008,6 +1276,22 @@ public sealed class LauncherForm : Form
                 "OneDrive 폴더를 여는 데 실패했습니다. 먼저 로그인이 되어 있는지 확인해 주세요.",
                 AppBrand.Name,
                 AppMessageKind.Warning);
+        }
+    }
+
+    private async Task OnOpenGoogleDriveClickedAsync()
+    {
+        try
+        {
+            var webUrl = await _googleDriveService.GetBluePageFolderWebUrlAsync(CancellationToken.None);
+            Process.Start(new ProcessStartInfo(webUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Google Drive 폴더 열기 실패: {ex.Message}");
+            AppMessageDialog.Show(this,
+                "Google Drive의 BluePage 폴더를 여는 데 실패했습니다. Google OAuth 설정과 로그인을 확인해 주세요.",
+                AppBrand.Name, AppMessageKind.Warning);
         }
     }
 

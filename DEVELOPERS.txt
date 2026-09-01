@@ -12,6 +12,13 @@ cd src/BluePage
 dotnet build -c Release
 ```
 
+## Google Drive 연동
+
+- Google Cloud 프로젝트에서 Google Drive API를 활성화합니다.
+- OAuth 클라이언트 유형은 `데스크톱 앱`을 사용합니다.
+- 실행 후 생성되는 사용자 `config.json`의 `googleAuth.clientId`, `googleAuth.clientSecret`을 설정합니다.
+- 기본 권한은 `https://www.googleapis.com/auth/drive.file`이며 전체 Drive 권한으로 넓히지 않습니다.
+
 ## 배포 파일 생성
 
 ```powershell

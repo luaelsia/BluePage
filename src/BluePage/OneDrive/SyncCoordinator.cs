@@ -1,4 +1,4 @@
-using Microsoft.Graph.Models;
+using Microsoft365OfficeWebLauncher.Cloud;
 using Microsoft365OfficeWebLauncher.Core;
 using Microsoft365OfficeWebLauncher.Logging;
 
@@ -32,15 +32,15 @@ public sealed class SyncCoordinator
     // 파일시스템/네트워크 타임스탬프 해상도 차이로 인한 오탐을 막기 위한 여유 시간
     private static readonly TimeSpan ChangeTolerance = TimeSpan.FromSeconds(2);
 
-    private readonly OneDriveUploadService _uploadService;
+    private readonly IReadOnlyDictionary<CloudProvider, ICloudDriveService> _services;
     private readonly UploadManifest _manifest;
     private readonly IConflictResolver _conflictResolver;
     private readonly FileLogger _logger;
     private ISyncActivityReporter _activityReporter = NullSyncActivityReporter.Instance;
 
-    public SyncCoordinator(OneDriveUploadService uploadService, UploadManifest manifest, IConflictResolver conflictResolver, FileLogger logger)
+    public SyncCoordinator(IEnumerable<ICloudDriveService> services, UploadManifest manifest, IConflictResolver conflictResolver, FileLogger logger)
     {
-        _uploadService = uploadService;
+        _services = services.ToDictionary(service => service.Provider);
         _manifest = manifest;
         _conflictResolver = conflictResolver;
         _logger = logger;
@@ -59,22 +59,41 @@ public sealed class SyncCoordinator
     /// 조용히 임의로 처리하기보다는 사용자가 직접 고르는 게 맞다는 판단). 과거에는 프로세스 간 매니페스트가
     /// 최신화되지 않아 가짜 충돌이 반복 발생했었는데, 이는 호출 전 UploadManifest.Reload()로 해결했다.
     /// </summary>
-    public async Task<SyncResult> PrepareForOpenAsync(string localFilePath, CancellationToken ct)
+    public async Task<SyncResult> PrepareForOpenAsync(string localFilePath, CancellationToken ct, CloudProvider? requestedProvider = null)
     {
         var entry = _manifest.Get(localFilePath);
 
-        if (entry is null)
+        if (entry is not null && requestedProvider is not null &&
+            (!CloudProviderNames.TryParse(entry.Provider, out var currentProvider) || currentProvider != requestedProvider.Value))
+        {
+            _logger.Info($"클라우드 공급자 전환: {localFilePath} ({entry.Provider} -> {requestedProvider})");
+            if (!entry.Activate(requestedProvider.Value.ToString()))
+            {
+                entry = new ManifestEntry
+                {
+                    Provider = requestedProvider.Value.ToString(),
+                    Remotes = entry.Remotes
+                };
+            }
+        }
+
+        var provider = requestedProvider ?? GetProvider(entry);
+        var service = GetService(provider);
+
+        if (entry is null || string.IsNullOrWhiteSpace(entry.DriveItemId))
         {
             _activityReporter.ReportStarted(localFilePath);
             try
             {
-                var created = await _uploadService.CreateInAppFolderAsync(localFilePath, ct);
+                var created = await service.CreateAsync(localFilePath, ct);
                 var newEntry = new ManifestEntry
                 {
-                    DriveItemId = created.Id!,
-                    WebUrl = created.WebUrl ?? string.Empty,
+                    Provider = provider.ToString(),
+                    DriveItemId = created.Id,
+                    WebUrl = created.WebUrl,
                     LastKnownLocalWriteUtc = File.GetLastWriteTimeUtc(localFilePath),
-                    LastKnownRemoteModifiedUtc = created.LastModifiedDateTime ?? DateTimeOffset.UtcNow
+                    LastKnownRemoteModifiedUtc = created.ModifiedUtc,
+                    Remotes = entry?.Remotes ?? new Dictionary<string, RemoteManifestEntry>(StringComparer.OrdinalIgnoreCase)
                 };
                 _manifest.Set(localFilePath, newEntry);
                 _manifest.Save();
@@ -90,8 +109,8 @@ public sealed class SyncCoordinator
         }
 
         var localWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
-        var remoteMetadata = await _uploadService.GetMetadataAsync(entry.DriveItemId, ct);
-        var remoteModifiedUtc = remoteMetadata.LastModifiedDateTime ?? entry.LastKnownRemoteModifiedUtc;
+        var remoteMetadata = await service.GetMetadataAsync(entry.DriveItemId, ct);
+        var remoteModifiedUtc = remoteMetadata.ModifiedUtc;
 
         var localChanged = localWriteUtc - entry.LastKnownLocalWriteUtc > ChangeTolerance;
         var remoteChanged = remoteModifiedUtc - entry.LastKnownRemoteModifiedUtc > ChangeTolerance;
@@ -104,12 +123,12 @@ public sealed class SyncCoordinator
 
         if (remoteChanged && !localChanged)
         {
-            return await DownloadOnlineOverLocalAsync(localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
+            return await DownloadOnlineOverLocalAsync(service, localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
         }
 
         if (localChanged && !remoteChanged)
         {
-            return await UploadLocalOverOnlineAsync(localFilePath, entry, localWriteUtc, ct);
+            return await UploadLocalOverOnlineAsync(service, localFilePath, entry, localWriteUtc, ct);
         }
 
         // 충돌: 양쪽 다 변경됨 — 항상 사용자에게 어떻게 처리할지 묻는다(기본값: 사본 생성).
@@ -123,19 +142,19 @@ public sealed class SyncCoordinator
                 return new SyncResult(SyncState.Skipped, entry.WebUrl, null);
 
             case ConflictResolutionChoice.KeepLocal:
-                return await UploadLocalOverOnlineAsync(localFilePath, entry, localWriteUtc, ct);
+                return await UploadLocalOverOnlineAsync(service, localFilePath, entry, localWriteUtc, ct);
 
             case ConflictResolutionChoice.KeepRemote:
-                return await DownloadOnlineOverLocalAsync(localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
+                return await DownloadOnlineOverLocalAsync(service, localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
 
             case ConflictResolutionChoice.KeepNewer:
                 return localWriteUtc >= remoteModifiedUtc
-                    ? await UploadLocalOverOnlineAsync(localFilePath, entry, localWriteUtc, ct)
-                    : await DownloadOnlineOverLocalAsync(localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
+                    ? await UploadLocalOverOnlineAsync(service, localFilePath, entry, localWriteUtc, ct)
+                    : await DownloadOnlineOverLocalAsync(service, localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct);
 
             case ConflictResolutionChoice.CreateCopy:
             default:
-                return await CreateConflictCopyAsync(localFilePath, entry, remoteMetadata, localWriteUtc, remoteModifiedUtc, ct);
+                return await CreateConflictCopyAsync(service, localFilePath, entry, remoteMetadata, localWriteUtc, remoteModifiedUtc, ct);
         }
     }
 
@@ -148,9 +167,11 @@ public sealed class SyncCoordinator
         var entry = _manifest.Get(localFilePath)
             ?? throw new InvalidOperationException($"추적 중이 아닌 파일입니다: {localFilePath}");
 
+        var service = GetService(GetProvider(entry));
+
         var localWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
-        var remoteMetadata = await _uploadService.GetMetadataAsync(entry.DriveItemId, ct);
-        var remoteModifiedUtc = remoteMetadata.LastModifiedDateTime ?? entry.LastKnownRemoteModifiedUtc;
+        var remoteMetadata = await service.GetMetadataAsync(entry.DriveItemId, ct);
+        var remoteModifiedUtc = remoteMetadata.ModifiedUtc;
 
         var localChanged = localWriteUtc - entry.LastKnownLocalWriteUtc > ChangeTolerance;
         var remoteChanged = remoteModifiedUtc - entry.LastKnownRemoteModifiedUtc > ChangeTolerance;
@@ -175,7 +196,7 @@ public sealed class SyncCoordinator
     {
         var entry = _manifest.Get(localFilePath)
             ?? throw new InvalidOperationException($"추적 중이 아닌 파일입니다: {localFilePath}");
-        return _uploadService.GetLockStateAsync(entry.DriveItemId, ct);
+        return GetService(GetProvider(entry)).GetLockStateAsync(entry.DriveItemId, ct);
     }
 
     /// <summary>동기화 검토 창용: 사용자가 고른 동작 하나만 실행한다(재조회 후 적용, Skip은 호출하지 않는 전제).</summary>
@@ -184,28 +205,30 @@ public sealed class SyncCoordinator
         var entry = _manifest.Get(localFilePath)
             ?? throw new InvalidOperationException($"추적 중이 아닌 파일입니다: {localFilePath}");
 
+        var service = GetService(GetProvider(entry));
+
         var localWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
-        var remoteMetadata = await _uploadService.GetMetadataAsync(entry.DriveItemId, ct);
-        var remoteModifiedUtc = remoteMetadata.LastModifiedDateTime ?? entry.LastKnownRemoteModifiedUtc;
+        var remoteMetadata = await service.GetMetadataAsync(entry.DriveItemId, ct);
+        var remoteModifiedUtc = remoteMetadata.ModifiedUtc;
 
         return action switch
         {
-            SyncAction.PullRemoteToLocal => await DownloadOnlineOverLocalAsync(localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct),
-            SyncAction.PushLocalToRemote => await UploadLocalOverOnlineAsync(localFilePath, entry, localWriteUtc, ct),
-            SyncAction.CreateConflictCopy => await CreateConflictCopyAsync(localFilePath, entry, remoteMetadata, localWriteUtc, remoteModifiedUtc, ct),
+            SyncAction.PullRemoteToLocal => await DownloadOnlineOverLocalAsync(service, localFilePath, entry, remoteMetadata, remoteModifiedUtc, ct),
+            SyncAction.PushLocalToRemote => await UploadLocalOverOnlineAsync(service, localFilePath, entry, localWriteUtc, ct),
+            SyncAction.CreateConflictCopy => await CreateConflictCopyAsync(service, localFilePath, entry, remoteMetadata, localWriteUtc, remoteModifiedUtc, ct),
             _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Skip은 실행 대상이 아닙니다.")
         };
     }
 
-    private async Task<SyncResult> UploadLocalOverOnlineAsync(string localFilePath, ManifestEntry entry, DateTimeOffset localWriteUtc, CancellationToken ct)
+    private async Task<SyncResult> UploadLocalOverOnlineAsync(ICloudDriveService service, string localFilePath, ManifestEntry entry, DateTimeOffset localWriteUtc, CancellationToken ct)
     {
         _activityReporter.ReportStarted(localFilePath);
         try
         {
-            var updated = await _uploadService.UpdateContentAsync(entry.DriveItemId, localFilePath, ct);
+            var updated = await service.UpdateAsync(entry.DriveItemId, localFilePath, ct);
             entry.LastKnownLocalWriteUtc = localWriteUtc;
-            entry.LastKnownRemoteModifiedUtc = updated.LastModifiedDateTime ?? DateTimeOffset.UtcNow;
-            entry.WebUrl = updated.WebUrl ?? entry.WebUrl;
+            entry.LastKnownRemoteModifiedUtc = updated.ModifiedUtc;
+            entry.WebUrl = updated.WebUrl;
             _manifest.Set(localFilePath, entry);
             _manifest.Save();
             _logger.Info($"로컬 내용을 온라인으로 업로드: {localFilePath}");
@@ -219,7 +242,7 @@ public sealed class SyncCoordinator
         }
     }
 
-    private async Task<SyncResult> DownloadOnlineOverLocalAsync(string localFilePath, ManifestEntry entry, DriveItem remoteMetadata, DateTimeOffset remoteModifiedUtc, CancellationToken ct)
+    private async Task<SyncResult> DownloadOnlineOverLocalAsync(ICloudDriveService service, string localFilePath, ManifestEntry entry, CloudFileMetadata remoteMetadata, DateTimeOffset remoteModifiedUtc, CancellationToken ct)
     {
         _activityReporter.ReportStarted(localFilePath);
         string? temporaryPath = null;
@@ -231,11 +254,11 @@ public sealed class SyncCoordinator
             temporaryPath = Path.Combine(
                 Path.GetTempPath(),
                 $"BluePage-{Guid.NewGuid():N}{Path.GetExtension(localFilePath)}");
-            await _uploadService.DownloadContentAsync(entry.DriveItemId, temporaryPath, ct);
+            await service.DownloadAsync(entry.DriveItemId, temporaryPath, ct);
             File.Copy(temporaryPath, localFilePath, overwrite: true);
             entry.LastKnownLocalWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
             entry.LastKnownRemoteModifiedUtc = remoteModifiedUtc;
-            entry.WebUrl = remoteMetadata.WebUrl ?? entry.WebUrl;
+            entry.WebUrl = remoteMetadata.WebUrl;
             _manifest.Set(localFilePath, entry);
             _manifest.Save();
             _logger.Info($"온라인 내용을 로컬로 반영: {localFilePath}");
@@ -264,17 +287,17 @@ public sealed class SyncCoordinator
     }
 
     private async Task<SyncResult> CreateConflictCopyAsync(
-        string localFilePath, ManifestEntry entry, DriveItem remoteMetadata,
+        ICloudDriveService service, string localFilePath, ManifestEntry entry, CloudFileMetadata remoteMetadata,
         DateTimeOffset localWriteUtc, DateTimeOffset remoteModifiedUtc, CancellationToken ct)
     {
         _activityReporter.ReportStarted(localFilePath);
         try
         {
             var conflictPath = LocalBackupService.BuildConflictCopyPath(localFilePath);
-            await _uploadService.DownloadContentAsync(entry.DriveItemId, conflictPath, ct);
+            await service.DownloadAsync(entry.DriveItemId, conflictPath, ct);
             entry.LastKnownLocalWriteUtc = localWriteUtc;
             entry.LastKnownRemoteModifiedUtc = remoteModifiedUtc;
-            entry.WebUrl = remoteMetadata.WebUrl ?? entry.WebUrl;
+            entry.WebUrl = remoteMetadata.WebUrl;
             _manifest.Set(localFilePath, entry);
             _manifest.Save();
             _logger.Info($"충돌 사본 생성: {conflictPath}");
@@ -287,5 +310,19 @@ public sealed class SyncCoordinator
             throw;
         }
     }
+
+    private CloudProvider GetProvider(ManifestEntry? entry)
+    {
+        if (entry is not null && CloudProviderNames.TryParse(entry.Provider, out var provider))
+        {
+            return provider;
+        }
+        return CloudProvider.Microsoft;
+    }
+
+    private ICloudDriveService GetService(CloudProvider provider) =>
+        _services.TryGetValue(provider, out var service)
+            ? service
+            : throw new InvalidOperationException($"{provider.DisplayName()} 저장소가 구성되지 않았습니다.");
 
 }

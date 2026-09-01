@@ -40,6 +40,17 @@ public static class ThemeApplier
     {
         switch (control)
         {
+            case TabPage tabPage:
+                tabPage.BackColor = theme.Background;
+                tabPage.ForeColor = theme.TextPrimary;
+                break;
+
+            case TabControl tabControl:
+                tabControl.BackColor = theme.Background;
+                tabControl.ForeColor = theme.TextPrimary;
+                tabControl.Invalidate();
+                break;
+
             case ModernCardPanel card:
                 card.BackColor = theme.CardBackground;
                 card.ForeColor = theme.TextPrimary;
@@ -99,6 +110,11 @@ public static class ThemeApplier
             case Panel panel when panel.Height <= 2:
                 // BuildDivider()로 만든 1px 구분선
                 panel.BackColor = theme.Border;
+                break;
+
+            case Panel panel:
+                panel.BackColor = theme.Background;
+                panel.ForeColor = theme.TextPrimary;
                 break;
         }
     }

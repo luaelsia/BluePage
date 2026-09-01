@@ -1,9 +1,11 @@
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft365OfficeWebLauncher.Auth;
+using Microsoft365OfficeWebLauncher.Cloud;
 using Microsoft365OfficeWebLauncher.Config;
 using Microsoft365OfficeWebLauncher.Core;
 using Microsoft365OfficeWebLauncher.Logging;
+using Microsoft365OfficeWebLauncher.GoogleDrive;
 using Microsoft365OfficeWebLauncher.OneDrive;
 using Microsoft365OfficeWebLauncher.Registry;
 using Microsoft365OfficeWebLauncher.UI;
@@ -14,7 +16,9 @@ internal static class Program
 {
     private sealed record AppServices(
         GraphAuthService AuthService,
+        GoogleAuthService GoogleAuthService,
         OneDriveUploadService UploadService,
+        GoogleDriveService GoogleDriveService,
         UploadManifest Manifest,
         LaunchOrchestrator Orchestrator,
         FileAssociationRegistrar Registrar,
@@ -83,7 +87,7 @@ internal static class Program
             var services = BuildServices(config, logger);
             var exePath = Environment.ProcessPath ?? throw new InvalidOperationException("실행 파일 경로를 확인할 수 없습니다.");
             Application.Run(new LauncherForm(
-                config, logger, services.AuthService, services.UploadService, services.Manifest,
+                config, logger, services.AuthService, services.GoogleAuthService, services.UploadService, services.GoogleDriveService, services.Manifest,
                 services.Orchestrator, services.Registrar, services.StartupRegistrar, exePath, startMinimized));
             return 0;
         }
@@ -130,13 +134,16 @@ internal static class Program
     {
         var catalog = new DocumentTypeCatalog(config);
         var authService = new GraphAuthService(config, logger);
+        var googleAuthService = new GoogleAuthService(config, logger);
         var uploadService = new OneDriveUploadService(authService, logger);
+        var googleDriveService = new GoogleDriveService(googleAuthService, logger);
         var manifest = UploadManifest.Load();
-        var syncCoordinator = new SyncCoordinator(uploadService, manifest, new GuiConflictResolver(), logger);
-        var orchestrator = new LaunchOrchestrator(catalog, syncCoordinator, manifest, logger);
+        ICloudDriveService[] cloudServices = [uploadService, googleDriveService];
+        var syncCoordinator = new SyncCoordinator(cloudServices, manifest, new GuiConflictResolver(), logger);
+        var orchestrator = new LaunchOrchestrator(catalog, syncCoordinator, manifest, logger, config);
         var registrar = new FileAssociationRegistrar(logger);
         var startupRegistrar = new StartupRegistrar();
-        return new AppServices(authService, uploadService, manifest, orchestrator, registrar, startupRegistrar);
+        return new AppServices(authService, googleAuthService, uploadService, googleDriveService, manifest, orchestrator, registrar, startupRegistrar);
     }
 
     private static LogLevel ParseLogLevel(string level) => level.ToLowerInvariant() switch
