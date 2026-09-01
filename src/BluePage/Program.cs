@@ -44,11 +44,10 @@ internal static class Program
         catch (Exception ex)
         {
             logger.Error("실행 중 처리되지 않은 예외가 발생했습니다.", ex);
-            MessageBox.Show(
+            AppMessageDialog.Show(
                 $"예기치 않은 오류가 발생했습니다.\n\n{ex.Message}\n\n자세한 내용은 로그를 확인하세요:\n{logger.CurrentLogFilePath}",
                 AppBrand.Name,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+                AppMessageKind.Error);
             return 1;
         }
     }
@@ -95,19 +94,13 @@ internal static class Program
         {
             var exePath = Environment.ProcessPath ?? throw new InvalidOperationException("실행 파일 경로를 확인할 수 없습니다.");
             new FileAssociationRegistrar(logger).RegisterAll(config, exePath);
-            MessageBox.Show(
-                "파일 연결 등록이 완료되었습니다.\n" +
-                $"탐색기에서 문서를 우클릭 → 연결 프로그램 → 다른 앱 선택에서 '{AppBrand.Name}'를 선택해\n" +
-                "\"항상 이 앱을 사용\"으로 지정하면 더블클릭 시 자동으로 열립니다.\n" +
-                "(Windows 정책상 앱이 스스로 기본값을 강제 지정할 수 없어 이 1회 확인이 필요합니다.)",
-                "등록 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return 0;
         }
 
         if (string.Equals(command, "--unregister", StringComparison.OrdinalIgnoreCase))
         {
             new FileAssociationRegistrar(logger).UnregisterAll(config);
-            MessageBox.Show("파일 연결 등록을 해제했습니다.", "해제 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            AppMessageDialog.Show("파일 연결 등록을 해제했습니다.", "해제 완료");
             return 0;
         }
 
@@ -122,7 +115,7 @@ internal static class Program
         {
             if (args.Length < 2)
             {
-                MessageBox.Show("--sync 명령에는 파일 경로가 필요합니다.", "인수 오류", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                AppMessageDialog.Show("--sync 명령에는 파일 경로가 필요합니다.", "인수 오류", AppMessageKind.Warning);
                 return 1;
             }
 

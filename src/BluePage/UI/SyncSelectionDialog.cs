@@ -73,7 +73,7 @@ public sealed class SyncSelectionDialog : Form
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 44,
+            Height = ThemeApplier.DialogButtonHeight + 16,
             Padding = new Padding(8)
         };
 

@@ -58,9 +58,12 @@ public sealed class FileAssociationRegistrar
     {
         using var classesRoot = OpenClassesRoot();
 
-        RegisterApplicationEntry(classesRoot, exePath);
+        var extensions = config.DocumentTypes
+            .SelectMany(d => d.Extensions.Select(e => (Ext: Normalize(e), d.OfficeApp)))
+            .DistinctBy(e => e.Ext, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        var extensions = config.DocumentTypes.SelectMany(d => d.Extensions.Select(e => (Ext: Normalize(e), d.OfficeApp))).ToList();
+        RegisterApplicationEntry(classesRoot, exePath, extensions.Select(e => e.Ext));
 
         using var capabilities = OpenOrCreate(Microsoft.Win32.Registry.CurrentUser, $@"Software\{AppRegistryName}\Capabilities");
 
@@ -73,6 +76,8 @@ public sealed class FileAssociationRegistrar
             {
                 var progId = ProgIdFor(ext);
                 RegisterProgId(classesRoot, progId, ext, officeApp, exePath);
+                RegisterOpenWithEntry(classesRoot, ext, progId);
+                RegisterOpenWithExecutable(classesRoot, ext);
                 fileAssoc.SetValue(ext, progId);
                 _logger.Info($"확장자 등록: {ext} -> {progId} ({officeApp})");
             }
@@ -108,7 +113,14 @@ public sealed class FileAssociationRegistrar
             var extensions = config.DocumentTypes.SelectMany(d => d.Extensions).Select(Normalize);
             foreach (var ext in extensions)
             {
-                classesRoot.DeleteSubKeyTree(ProgIdFor(ext), throwOnMissingSubKey: false);
+                var progId = ProgIdFor(ext);
+                using (var openWithProgIds = classesRoot.OpenSubKey($@"{ext}\OpenWithProgids", writable: true))
+                {
+                    openWithProgIds?.DeleteValue(progId, throwOnMissingValue: false);
+                }
+
+                classesRoot.DeleteSubKeyTree($@"{ext}\OpenWithList\{ExecutableName}", throwOnMissingSubKey: false);
+                classesRoot.DeleteSubKeyTree(progId, throwOnMissingSubKey: false);
                 _logger.Info($"확장자 등록 해제: {ext}");
             }
         }
@@ -117,13 +129,32 @@ public sealed class FileAssociationRegistrar
         _logger.Info("파일 연결 등록을 모두 해제했습니다.");
     }
 
-    private void RegisterApplicationEntry(RegistryKey classesRoot, string exePath)
+    private void RegisterApplicationEntry(RegistryKey classesRoot, string exePath, IEnumerable<string> extensions)
     {
         using var appKey = OpenOrCreate(classesRoot, $@"Applications\{ExecutableName}");
         appKey.SetValue("FriendlyAppName", AppBrand.Name);
 
+        using (var supportedTypes = OpenOrCreate(appKey, "SupportedTypes"))
+        {
+            foreach (var ext in extensions)
+            {
+                supportedTypes.SetValue(ext, string.Empty);
+            }
+        }
+
         using var shellOpenCommand = OpenOrCreate(classesRoot, $@"Applications\{ExecutableName}\shell\open\command");
         shellOpenCommand.SetValue(string.Empty, $"\"{exePath}\" \"%1\"");
+    }
+
+    private static void RegisterOpenWithEntry(RegistryKey classesRoot, string ext, string progId)
+    {
+        using var openWithProgIds = OpenOrCreate(classesRoot, $@"{ext}\OpenWithProgids");
+        openWithProgIds.SetValue(progId, string.Empty);
+    }
+
+    private static void RegisterOpenWithExecutable(RegistryKey classesRoot, string ext)
+    {
+        using var _ = OpenOrCreate(classesRoot, $@"{ext}\OpenWithList\{ExecutableName}");
     }
 
     private static void RegisterProgId(RegistryKey classesRoot, string progId, string ext, string officeApp, string exePath)
@@ -133,6 +164,11 @@ public sealed class FileAssociationRegistrar
 
         using var iconKey = OpenOrCreate(classesRoot, $@"{progId}\DefaultIcon");
         iconKey.SetValue(string.Empty, $"{exePath},0");
+
+        using var applicationKey = OpenOrCreate(classesRoot, $@"{progId}\Application");
+        applicationKey.SetValue("ApplicationName", AppBrand.Name);
+        applicationKey.SetValue("ApplicationDescription", AppBrand.Description);
+        applicationKey.SetValue("ApplicationIcon", $"{exePath},0");
 
         using var commandKey = OpenOrCreate(classesRoot, $@"{progId}\shell\open\command");
         commandKey.SetValue(string.Empty, $"\"{exePath}\" \"%1\"");

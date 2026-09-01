@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft365OfficeWebLauncher.Logging;
 using Microsoft365OfficeWebLauncher.OneDrive;
+using Microsoft365OfficeWebLauncher.UI;
 
 namespace Microsoft365OfficeWebLauncher.Core;
 
@@ -11,6 +12,7 @@ public sealed class LaunchOrchestrator
     private readonly SyncCoordinator _syncCoordinator;
     private readonly UploadManifest _manifest;
     private readonly FileLogger _logger;
+    private readonly DeferredSyncRegistry _deferredSyncRegistry;
 
     public LaunchOrchestrator(
         DocumentTypeCatalog catalog,
@@ -22,6 +24,7 @@ public sealed class LaunchOrchestrator
         _syncCoordinator = syncCoordinator;
         _manifest = manifest;
         _logger = logger;
+        _deferredSyncRegistry = new DeferredSyncRegistry();
     }
 
     public async Task<int> OpenAsync(string filePath, CancellationToken ct)
@@ -43,11 +46,43 @@ public sealed class LaunchOrchestrator
         }
 
         _logger.Info($"열기 시작: {fullPath} ({appDefinition.OfficeApp})");
+        _deferredSyncRegistry.Resume(fullPath);
 
         SyncResult result;
         try
         {
             result = await _syncCoordinator.PrepareForOpenAsync(fullPath, ct);
+        }
+        catch (Exception ex) when (GraphErrorHelper.IsResourceLocked(ex))
+        {
+            _logger.Warn($"Office Web 편집 잠금 감지, 문서 닫힘 대기 시작: {fullPath}");
+
+            using var waitDialog = new WebDocumentUnlockDialog(
+                fullPath,
+                checkCt => _syncCoordinator.GetRemoteLockStateAsync(fullPath, checkCt),
+                retryCt => _syncCoordinator.PrepareForOpenAsync(fullPath, retryCt));
+            var dialogResult = waitDialog.ShowDialog();
+
+            if (dialogResult == DialogResult.Cancel ||
+                (waitDialog.SyncResult is null && waitDialog.SyncError is null))
+            {
+                if (waitDialog.SynchronizationStopped)
+                {
+                    _deferredSyncRegistry.Defer(fullPath);
+                }
+                _logger.Info($"사용자가 웹 문서 닫힘 대기를 취소했습니다: {fullPath}");
+                return 0;
+            }
+
+            if (waitDialog.SyncError is not null)
+            {
+                _logger.Error($"웹 문서 잠금 해제 후 동기화 실패: {fullPath}", waitDialog.SyncError);
+                ShowError($"문서가 닫힌 후 동기화하는 중 오류가 발생했습니다.\n\n{waitDialog.SyncError.Message}");
+                return 1;
+            }
+
+            result = waitDialog.SyncResult!;
+            _logger.Info($"웹 문서 잠금 해제 후 동기화 완료: {fullPath} (상태: {result.State})");
         }
         catch (Exception ex)
         {
@@ -58,10 +93,8 @@ public sealed class LaunchOrchestrator
             var existingEntry = _manifest.Get(fullPath);
             if (existingEntry is not null && !string.IsNullOrEmpty(existingEntry.WebUrl))
             {
-                var reason = GraphErrorHelper.IsResourceLocked(ex)
-                    ? "이 문서가 지금 Office Web에서 편집 중이라 로컬 변경사항을 온라인에 반영하지 못했습니다."
-                    : "온라인 동기화에 실패했습니다(자세한 내용은 로그 참고).";
-                ShowInfo($"{reason}\n일단 온라인의 최신 버전을 그대로 엽니다.");
+                ShowInfo("온라인 동기화에 실패했습니다(자세한 내용은 로그 참고).\n" +
+                         "일단 온라인의 최신 버전을 그대로 엽니다.");
 
                 OpenInBrowser(existingEntry.WebUrl);
                 _logger.Info($"동기화 실패 후 기존 온라인 사본을 열었습니다: {existingEntry.WebUrl}");
@@ -70,6 +103,12 @@ public sealed class LaunchOrchestrator
 
             ShowError($"동기화에 실패해 문서를 열 수 없습니다.\n\n{ex.Message}");
             return 1;
+        }
+
+        if (result.State == SyncState.Skipped)
+        {
+            _logger.Info($"사용자 선택으로 문서를 열지 않고 동기화를 종료합니다: {fullPath}");
+            return 0;
         }
 
         if (result.State == SyncState.Conflict)
@@ -87,6 +126,7 @@ public sealed class LaunchOrchestrator
     public async Task<int> SyncOneAsync(string filePath, CancellationToken ct)
     {
         var fullPath = Path.GetFullPath(filePath);
+        _deferredSyncRegistry.Resume(fullPath);
         if (!File.Exists(fullPath))
         {
             _logger.Error($"동기화 대상 파일을 찾을 수 없습니다: {fullPath}");
@@ -112,8 +152,15 @@ public sealed class LaunchOrchestrator
 
         foreach (var path in paths)
         {
+            if (_deferredSyncRegistry.IsDeferred(path))
+            {
+                _logger.Debug($"사용자가 동기화하지 않기로 한 파일은 백그라운드에서 건너뜁니다: {path}");
+                continue;
+            }
+
             if (!File.Exists(path))
             {
+                _deferredSyncRegistry.Resume(path);
                 _logger.Warn($"로컬에서 사라진 파일은 건너뜁니다: {path}");
                 continue;
             }
@@ -122,10 +169,58 @@ public sealed class LaunchOrchestrator
             {
                 var result = await _syncCoordinator.PrepareForOpenAsync(path, ct);
                 _logger.Info($"동기화됨: {path} (상태: {result.State})");
+                if (result.State == SyncState.Skipped)
+                {
+                    _deferredSyncRegistry.Defer(path);
+                }
             }
             catch (Exception ex) when (GraphErrorHelper.IsResourceLocked(ex))
             {
-                _logger.Warn($"온라인에서 편집 중이라 지금은 반영하지 못했습니다(다음 주기에 다시 시도): {path}");
+                _logger.Warn($"백그라운드 동기화 중 Office Web 편집 잠금 감지, 문서 닫힘 대기 시작: {path}");
+
+                using var waitDialog = new WebDocumentUnlockDialog(
+                    path,
+                    checkCt => _syncCoordinator.GetRemoteLockStateAsync(path, checkCt),
+                    retryCt => _syncCoordinator.PrepareForOpenAsync(path, retryCt));
+                var dialogResult = waitDialog.ShowDialog();
+
+                if (dialogResult == DialogResult.Cancel ||
+                    (waitDialog.SyncResult is null && waitDialog.SyncError is null))
+                {
+                    if (waitDialog.SynchronizationStopped)
+                    {
+                        _deferredSyncRegistry.Defer(path);
+                    }
+                    _logger.Info($"사용자가 백그라운드 동기화의 웹 문서 닫힘 대기를 취소했습니다: {path}");
+                    continue;
+                }
+
+                if (waitDialog.SyncError is not null)
+                {
+                    _logger.Error($"웹 문서 잠금 해제 후 백그라운드 동기화 실패: {path}", waitDialog.SyncError);
+                    ShowError($"문서가 닫힌 후 동기화하는 중 오류가 발생했습니다.\n\n{waitDialog.SyncError.Message}");
+                    continue;
+                }
+
+                var retryResult = waitDialog.SyncResult!;
+                _logger.Info($"웹 문서 잠금 해제 후 백그라운드 동기화 완료: {path} (상태: {retryResult.State})");
+
+                if (retryResult.State == SyncState.Skipped)
+                {
+                    _deferredSyncRegistry.Defer(path);
+                    continue;
+                }
+
+                if (retryResult.State == SyncState.Conflict)
+                {
+                    ShowInfo(
+                        "로컬 파일과 Office Web의 온라인 사본이 모두 변경되어 자동으로 병합할 수 없습니다.\n" +
+                        $"온라인 사본을 아래 경로에 별도로 저장했습니다. 두 파일을 확인 후 직접 병합해 주세요.\n\n{retryResult.ConflictCopyPath}");
+                }
+
+                OpenInBrowser(retryResult.WebUrl);
+                _logger.Info($"잠금 해제 후 웹 문서를 다시 열었습니다: {retryResult.WebUrl}");
+                ShowInfo($"동기화를 완료하고 웹 문서를 다시 열었습니다:\n{Path.GetFileName(path)}");
             }
             catch (Exception ex)
             {
@@ -141,8 +236,11 @@ public sealed class LaunchOrchestrator
         _syncCoordinator.DetectAsync(filePath, ct);
 
     /// <summary>동기화 검토 창용: 사용자가 고른 동작 하나만 실행한다.</summary>
-    public Task<SyncResult> ApplySyncActionAsync(string filePath, SyncAction action, CancellationToken ct) =>
-        _syncCoordinator.ApplyAsync(filePath, action, ct);
+    public Task<SyncResult> ApplySyncActionAsync(string filePath, SyncAction action, CancellationToken ct)
+    {
+        _deferredSyncRegistry.Resume(Path.GetFullPath(filePath));
+        return _syncCoordinator.ApplyAsync(filePath, action, ct);
+    }
 
     /// <summary>GUI 프로세스에서만 실제 토스트 알림을 연결한다(헤드리스 오픈/CLI는 호출하지 않음).</summary>
     public void AttachActivityReporter(ISyncActivityReporter reporter) => _syncCoordinator.AttachActivityReporter(reporter);
@@ -153,10 +251,8 @@ public sealed class LaunchOrchestrator
     }
 
     private static void ShowError(string message) =>
-        System.Windows.Forms.MessageBox.Show(message, AppBrand.Name,
-            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
+        AppMessageDialog.Show(message, AppBrand.Name, AppMessageKind.Error);
 
     private static void ShowInfo(string message) =>
-        System.Windows.Forms.MessageBox.Show(message, AppBrand.Name,
-            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+        AppMessageDialog.Show(message, AppBrand.Name, AppMessageKind.Information);
 }

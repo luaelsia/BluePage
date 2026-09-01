@@ -423,9 +423,14 @@ public sealed class LauncherForm : Form
         bar.Controls.Add(openOneDriveButton);
 
         var logButton = CreateModernButton("로그 폴더 열기", 110);
-        logButton.Margin = new Padding(0);
+        logButton.Margin = new Padding(0, 0, 8, 0);
         logButton.Click += (_, _) => OpenLogFolder();
         bar.Controls.Add(logButton);
+
+        var backupButton = CreateModernButton("백업 폴더 열기", 110);
+        backupButton.Margin = new Padding(0);
+        backupButton.Click += (_, _) => OpenBackupFolder();
+        bar.Controls.Add(backupButton);
 
         return bar;
     }
@@ -448,6 +453,15 @@ public sealed class LauncherForm : Form
             AutoSize = true,
             Font = new Font(Font, FontStyle.Bold),
             Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 3, 10, 0)
+        });
+
+        footer.Controls.Add(new Label
+        {
+            Text = $"v{AppBrand.Version}",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Tag = ThemeApplier.SecondaryTag,
             Margin = new Padding(0, 3, 10, 0)
         });
 
@@ -915,7 +929,7 @@ public sealed class LauncherForm : Form
         var paths = _manifest.AllEntries.Keys.Where(File.Exists).ToList();
         if (paths.Count == 0)
         {
-            MessageBox.Show("동기화할 파일이 없습니다.", AppBrand.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            AppMessageDialog.Show(this, "동기화할 파일이 없습니다.", AppBrand.Name);
             return;
         }
 
@@ -960,9 +974,10 @@ public sealed class LauncherForm : Form
 
                 if (failures.Count > 0)
                 {
-                    MessageBox.Show(
+                    AppMessageDialog.Show(
+                        this,
                         "일부 파일을 반영하지 못했습니다:\n\n" + string.Join("\n", failures),
-                        AppBrand.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        AppBrand.Name, AppMessageKind.Warning);
                 }
             }
         }
@@ -988,11 +1003,11 @@ public sealed class LauncherForm : Form
         catch (Exception ex)
         {
             _logger.Warn($"OneDrive 폴더 열기 실패: {ex.Message}");
-            MessageBox.Show(
+            AppMessageDialog.Show(
+                this,
                 "OneDrive 폴더를 여는 데 실패했습니다. 먼저 로그인이 되어 있는지 확인해 주세요.",
                 AppBrand.Name,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+                AppMessageKind.Warning);
         }
     }
 
@@ -1001,6 +1016,12 @@ public sealed class LauncherForm : Form
         var logDir = Path.GetDirectoryName(_logger.CurrentLogFilePath)!;
         Directory.CreateDirectory(logDir);
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{logDir}\"") { UseShellExecute = true });
+    }
+
+    private static void OpenBackupFolder()
+    {
+        Directory.CreateDirectory(LocalBackupService.BackupRootDirectory);
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LocalBackupService.BackupRootDirectory}\"") { UseShellExecute = true });
     }
 
     private static string FormatRelative(DateTimeOffset time)

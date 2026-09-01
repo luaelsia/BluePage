@@ -29,6 +29,15 @@ https://github.com/luaelsia/BluePage/releases/latest/download/BluePage-v1.0.0-wi
 - 실행한 파일을 OneDrive 에 자동으로 업로드 후 실행시킵니다. 
 - 로컬 파일과 OneDrive 의 파일이 서로 다른 경우 동기화 설정 창이 팝업됩니다. 
 
+## 동기화 안전 백업
+
+- 온라인 파일로 로컬 파일을 덮어쓰기 전, 현재 로컬 파일을 자동으로 백업합니다.
+- 충돌 상황에서 생성한 온라인 사본도 원본 문서 폴더가 아닌 백업 폴더에 저장됩니다.
+- 백업 위치: `%LOCALAPPDATA%\Microsoft365OfficeWebLauncher\Backups`
+- Blue Page의 `바로가기` → `백업 폴더 열기`에서도 바로 확인할 수 있습니다.
+- 잘못된 동기화가 발생했다면 문서 이름별 하위 폴더에서 날짜가 표시된 백업 파일을 찾아 원래 위치로 복사하세요.
+- 백업에 실패하면 Blue Page는 로컬 파일 덮어쓰기를 중단합니다.
+
 ## 제거
 
 다운로드한 폴더의 `uninstall.ps1`을 실행합니다.

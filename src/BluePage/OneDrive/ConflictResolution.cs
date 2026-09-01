@@ -3,6 +3,9 @@ namespace Microsoft365OfficeWebLauncher.OneDrive;
 /// <summary>로컬/온라인이 모두 변경된 충돌 상황에서 사용자가 선택하는 처리 방식.</summary>
 public enum ConflictResolutionChoice
 {
+    /// <summary>이번에는 어느 쪽 파일도 변경하지 않는다.</summary>
+    Skip,
+
     /// <summary>온라인 사본을 별도 파일로 저장하고 로컬 원본은 그대로 둔다(기본값, 가장 안전).</summary>
     CreateCopy,
 

@@ -8,6 +8,7 @@ public static class ThemeApplier
 {
     public const string SkipTag = "theme-skip";
     public const string SecondaryTag = "theme-secondary";
+    public const int DialogButtonHeight = 34;
 
     public static void Apply(Form form, ThemePalette theme)
     {
@@ -53,6 +54,10 @@ public static class ThemeApplier
 
             case Button button:
                 button.FlatStyle = FlatStyle.Flat;
+                button.AutoSizeMode = AutoSizeMode.GrowOnly;
+                button.MinimumSize = new Size(button.MinimumSize.Width, DialogButtonHeight);
+                button.Padding = new Padding(10, 0, 10, 0);
+                button.Margin = new Padding(button.Margin.Left, 0, button.Margin.Right, 0);
                 button.BackColor = theme.ButtonBackground;
                 button.ForeColor = theme.TextPrimary;
                 button.FlatAppearance.BorderColor = theme.ButtonBorder;

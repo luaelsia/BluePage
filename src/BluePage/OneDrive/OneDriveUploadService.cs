@@ -3,6 +3,8 @@ using Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession;
 using Microsoft.Graph.Models;
 using Microsoft.Kiota.Abstractions;
 using Microsoft.Kiota.Abstractions.Authentication;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using Microsoft365OfficeWebLauncher.Auth;
 using Microsoft365OfficeWebLauncher.Logging;
 
@@ -23,6 +25,8 @@ public sealed class OneDriveUploadService
     private const int UploadSliceSize = 320 * 1024; // 320KiB의 배수여야 함(Graph 요구사항)
 
     private readonly GraphServiceClient _graphClient;
+    private readonly GraphAuthService _authService;
+    private readonly HttpClient _httpClient = new();
     private readonly FileLogger _logger;
     private string? _driveId;
     private string? _appRootId;
@@ -30,9 +34,56 @@ public sealed class OneDriveUploadService
 
     public OneDriveUploadService(GraphAuthService authService, FileLogger logger)
     {
+        _authService = authService;
         var authProvider = new BaseBearerTokenAuthenticationProvider(new MsalAccessTokenProvider(authService));
         _graphClient = new GraphServiceClient(authProvider);
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Graph beta의 file.lockInfo를 조회해 실제 업로드 없이 웹 편집 잠금 상태를 확인한다.
+    /// 일부 계정/테넌트에서 beta 필드를 제공하지 않으면 Unknown을 반환하고 실제 업로드 때 423으로 다시 검증한다.
+    /// </summary>
+    public async Task<RemoteLockState> GetLockStateAsync(string driveItemId, CancellationToken ct)
+    {
+        try
+        {
+            var (driveId, _) = await GetAppFolderReferenceAsync(ct);
+            var authResult = await _authService.AcquireTokenAsync(ct);
+            var url = $"https://graph.microsoft.com/beta/drives/{Uri.EscapeDataString(driveId)}/items/{Uri.EscapeDataString(driveItemId)}?$select=file";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+            using var response = await _httpClient.SendAsync(request, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.Debug($"웹 잠금 상태 조회 미지원/실패: {(int)response.StatusCode} {response.ReasonPhrase}");
+                return RemoteLockState.Unknown;
+            }
+
+            await using var content = await response.Content.ReadAsStreamAsync(ct);
+            using var json = await JsonDocument.ParseAsync(content, cancellationToken: ct);
+            if (!json.RootElement.TryGetProperty("file", out var file) ||
+                !file.TryGetProperty("lockInfo", out var lockInfo) ||
+                !lockInfo.TryGetProperty("lockType", out var lockTypeElement))
+            {
+                return RemoteLockState.Unlocked;
+            }
+
+            var lockType = lockTypeElement.GetString();
+            return string.IsNullOrWhiteSpace(lockType) || string.Equals(lockType, "none", StringComparison.OrdinalIgnoreCase)
+                ? RemoteLockState.Unlocked
+                : RemoteLockState.Locked;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"웹 잠금 상태 조회 실패: {ex.Message}");
+            return RemoteLockState.Unknown;
+        }
     }
 
     public async Task<DriveItem> CreateInAppFolderAsync(string localFilePath, CancellationToken ct)

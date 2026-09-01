@@ -6,6 +6,8 @@ namespace Microsoft365OfficeWebLauncher.OneDrive;
 
 public enum SyncState
 {
+    /// <summary>사용자가 이번 동기화를 취소해 어느 쪽도 변경하지 않음.</summary>
+    Skipped,
     /// <summary>매니페스트에 없던 파일 — 최초 업로드.</summary>
     NewUpload,
     /// <summary>로컬/온라인 모두 마지막 동기화 이후 변경 없음.</summary>
@@ -116,6 +118,10 @@ public sealed class SyncCoordinator
 
         switch (choice)
         {
+            case ConflictResolutionChoice.Skip:
+                _logger.Info($"사용자 선택으로 동기화하지 않음: {localFilePath}");
+                return new SyncResult(SyncState.Skipped, entry.WebUrl, null);
+
             case ConflictResolutionChoice.KeepLocal:
                 return await UploadLocalOverOnlineAsync(localFilePath, entry, localWriteUtc, ct);
 
@@ -164,6 +170,14 @@ public sealed class SyncCoordinator
         return new SyncDetection(localFilePath, state, localWriteUtc, remoteModifiedUtc, lastSyncedUtc);
     }
 
+    /// <summary>파일 내용을 변경하지 않고 Office Web 편집 잠금 상태만 확인한다.</summary>
+    public Task<RemoteLockState> GetRemoteLockStateAsync(string localFilePath, CancellationToken ct)
+    {
+        var entry = _manifest.Get(localFilePath)
+            ?? throw new InvalidOperationException($"추적 중이 아닌 파일입니다: {localFilePath}");
+        return _uploadService.GetLockStateAsync(entry.DriveItemId, ct);
+    }
+
     /// <summary>동기화 검토 창용: 사용자가 고른 동작 하나만 실행한다(재조회 후 적용, Skip은 호출하지 않는 전제).</summary>
     public async Task<SyncResult> ApplyAsync(string localFilePath, SyncAction action, CancellationToken ct)
     {
@@ -208,9 +222,17 @@ public sealed class SyncCoordinator
     private async Task<SyncResult> DownloadOnlineOverLocalAsync(string localFilePath, ManifestEntry entry, DriveItem remoteMetadata, DateTimeOffset remoteModifiedUtc, CancellationToken ct)
     {
         _activityReporter.ReportStarted(localFilePath);
+        string? temporaryPath = null;
         try
         {
-            await _uploadService.DownloadContentAsync(entry.DriveItemId, localFilePath, ct);
+            var backupPath = LocalBackupService.BackupBeforeOverwrite(localFilePath);
+            _logger.Info($"온라인 반영 전 로컬 백업 생성: {localFilePath} -> {backupPath}");
+
+            temporaryPath = Path.Combine(
+                Path.GetTempPath(),
+                $"BluePage-{Guid.NewGuid():N}{Path.GetExtension(localFilePath)}");
+            await _uploadService.DownloadContentAsync(entry.DriveItemId, temporaryPath, ct);
+            File.Copy(temporaryPath, localFilePath, overwrite: true);
             entry.LastKnownLocalWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
             entry.LastKnownRemoteModifiedUtc = remoteModifiedUtc;
             entry.WebUrl = remoteMetadata.WebUrl ?? entry.WebUrl;
@@ -225,6 +247,20 @@ public sealed class SyncCoordinator
             _activityReporter.ReportCompleted(localFilePath, false);
             throw;
         }
+        finally
+        {
+            if (temporaryPath is not null)
+            {
+                try
+                {
+                    File.Delete(temporaryPath);
+                }
+                catch
+                {
+                    // 임시 파일 정리 실패는 완료된 동기화 결과를 뒤집지 않는다.
+                }
+            }
+        }
     }
 
     private async Task<SyncResult> CreateConflictCopyAsync(
@@ -234,7 +270,7 @@ public sealed class SyncCoordinator
         _activityReporter.ReportStarted(localFilePath);
         try
         {
-            var conflictPath = BuildConflictCopyPath(localFilePath);
+            var conflictPath = LocalBackupService.BuildConflictCopyPath(localFilePath);
             await _uploadService.DownloadContentAsync(entry.DriveItemId, conflictPath, ct);
             entry.LastKnownLocalWriteUtc = localWriteUtc;
             entry.LastKnownRemoteModifiedUtc = remoteModifiedUtc;
@@ -252,12 +288,4 @@ public sealed class SyncCoordinator
         }
     }
 
-    private static string BuildConflictCopyPath(string localFilePath)
-    {
-        var dir = Path.GetDirectoryName(localFilePath) ?? ".";
-        var name = Path.GetFileNameWithoutExtension(localFilePath);
-        var ext = Path.GetExtension(localFilePath);
-        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        return Path.Combine(dir, $"{name} (Web 충돌사본, {timestamp}){ext}");
-    }
 }
