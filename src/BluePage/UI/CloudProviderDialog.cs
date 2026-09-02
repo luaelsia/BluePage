@@ -7,7 +7,7 @@ public sealed class CloudProviderDialog : Form
     public CloudProvider? SelectedProvider { get; private set; }
     public bool RememberAsDefault { get; private set; }
 
-    public CloudProviderDialog(string filePath)
+    public CloudProviderDialog(string filePath, IReadOnlySet<CloudProvider> supportedProviders)
     {
         Text = "웹 Office 선택";
         StartPosition = FormStartPosition.CenterScreen;
@@ -45,8 +45,8 @@ public sealed class CloudProviderDialog : Form
         var google = new ModernButton { Text = "Google Workspace (테스트)", MinimumSize = new Size(190, 42) };
         microsoft.Click += (_, _) => Select(CloudProvider.Microsoft);
         google.Click += (_, _) => Select(CloudProvider.Google);
-        buttons.Controls.Add(microsoft);
-        buttons.Controls.Add(google);
+        if (supportedProviders.Contains(CloudProvider.Microsoft)) buttons.Controls.Add(microsoft);
+        if (supportedProviders.Contains(CloudProvider.Google)) buttons.Controls.Add(google);
         root.Controls.Add(buttons);
 
         var remember = new CheckBox

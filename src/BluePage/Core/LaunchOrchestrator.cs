@@ -53,7 +53,12 @@ public sealed class LaunchOrchestrator
         _logger.Info($"열기 시작: {fullPath} ({appDefinition.OfficeApp})");
         _deferredSyncRegistry.Resume(fullPath);
 
-        var provider = SelectProvider(fullPath);
+        if (string.Equals(Path.GetExtension(fullPath), ".xlsm", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowWarning("XLSM 파일을 웹에서 열 수 있지만 매크로는 실행되지 않습니다.");
+        }
+
+        var provider = SelectProvider(fullPath, appDefinition);
         if (provider is null)
         {
             _logger.Info($"사용자가 웹 Office 선택을 취소했습니다: {fullPath}");
@@ -257,20 +262,25 @@ public sealed class LaunchOrchestrator
     /// <summary>GUI 프로세스에서만 실제 토스트 알림을 연결한다(헤드리스 오픈/CLI는 호출하지 않음).</summary>
     public void AttachActivityReporter(ISyncActivityReporter reporter) => _syncCoordinator.AttachActivityReporter(reporter);
 
-    private CloudProvider? SelectProvider(string filePath)
+    private CloudProvider? SelectProvider(string filePath, OfficeAppDefinition definition)
     {
+        if (definition.SupportedProviders.Count == 1)
+        {
+            return definition.SupportedProviders.Single();
+        }
+
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
         var preference = _config.DocumentProviderPreferences.TryGetValue(extension, out var perExtension) &&
                          !string.Equals(perExtension, "Default", StringComparison.OrdinalIgnoreCase)
             ? perExtension
             : _config.PreferredCloudProvider;
 
-        if (CloudProviderNames.TryParse(preference, out var configured))
+        if (CloudProviderNames.TryParse(preference, out var configured) && definition.Supports(configured))
         {
             return configured;
         }
 
-        using var dialog = new CloudProviderDialog(filePath);
+        using var dialog = new CloudProviderDialog(filePath, definition.SupportedProviders);
         if (dialog.ShowDialog() != DialogResult.OK || dialog.SelectedProvider is null)
         {
             return null;
@@ -294,4 +304,7 @@ public sealed class LaunchOrchestrator
 
     private static void ShowInfo(string message) =>
         AppMessageDialog.Show(message, AppBrand.Name, AppMessageKind.Information);
+
+    private static void ShowWarning(string message) =>
+        AppMessageDialog.Show(message, AppBrand.Name, AppMessageKind.Warning);
 }

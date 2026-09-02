@@ -82,7 +82,8 @@ public static class ConfigLoader
             target.DocumentTypes.Add(new DocumentTypeConfig
             {
                 Extensions = missing,
-                OfficeApp = defaultType.OfficeApp
+                OfficeApp = defaultType.OfficeApp,
+                SupportedProviders = new List<string>(defaultType.SupportedProviders)
             });
 
             foreach (var ext in missing)

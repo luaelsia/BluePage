@@ -74,6 +74,10 @@ public sealed class DocumentTypeConfig
 
     [JsonPropertyName("officeApp")]
     public string OfficeApp { get; set; } = string.Empty;
+
+    /// <summary>지원 서비스 목록. 생략하면 Microsoft와 Google을 모두 지원한다.</summary>
+    [JsonPropertyName("supportedProviders")]
+    public List<string> SupportedProviders { get; set; } = new();
 }
 
 public sealed class LoggingConfig

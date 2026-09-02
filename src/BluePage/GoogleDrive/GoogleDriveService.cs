@@ -141,11 +141,16 @@ public sealed class GoogleDriveService : ICloudDriveService
     {
         ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".doc" => "application/msword",
+        ".odt" => "application/vnd.oasis.opendocument.text",
         ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".xls" => "application/vnd.ms-excel",
         ".xlsm" => "application/vnd.ms-excel.sheet.macroEnabled.12",
+        ".csv" => "text/csv",
+        ".ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        ".tsv" => "text/tab-separated-values",
         ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ".ppt" => "application/vnd.ms-powerpoint",
+        ".odp" => "application/vnd.oasis.opendocument.presentation",
         _ => "application/octet-stream"
     };
 }

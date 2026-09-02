@@ -145,40 +145,25 @@ public sealed class LauncherForm : Form
             Icon = SystemIcons.Application;
         }
         ShowIcon = true;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         MinimizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Size = new Size(960, 600);
+        MinimumSize = new Size(760, 420);
         Font = new Font("Segoe UI Variable Text", 9.5F);
 
         var root = new TableLayoutPanel
         {
-            Padding = new Padding(24, 22, 24, 20),
+            Padding = new Padding(24, 18, 24, 20),
             ColumnCount = 1,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Width = 720
+            RowCount = 2,
+            Dock = DockStyle.Fill
         };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(root);
-
-        var heading = new Label
-        {
-            Text = "Blue Page",
-            AutoSize = true,
-            Font = new Font("Segoe UI Variable Display", 20F, FontStyle.Bold),
-            Margin = new Padding(2, 0, 0, 2)
-        };
-        root.Controls.Add(heading);
-        root.Controls.Add(new Label
-        {
-            Text = "Office 문서를 Microsoft 365 또는 Google Workspace에서 열고 동기화합니다.",
-            AutoSize = true,
-            ForeColor = AppTheme.Current.TextSecondary,
-            Tag = ThemeApplier.SecondaryTag,
-            Margin = new Padding(3, 0, 0, 14)
-        });
 
         root.Controls.Add(BuildMainTabs());
         root.Controls.Add(BuildBrandFooter());
@@ -188,13 +173,12 @@ public sealed class LauncherForm : Form
     {
         _mainTabs = new ModernTabControl
         {
-            Width = 672,
-            Height = 430,
+            Dock = DockStyle.Fill,
             Margin = new Padding(0)
         };
 
         _mainTabs.AddTab("일반", BuildScrollableTabContent(BuildGeneralTab()));
-        _mainTabs.AddTab("문서 연결", BuildScrollableTabContent(BuildDocumentConnectionTab()));
+        _mainTabs.AddTab("문서 연결", BuildDocumentConnectionTab());
         _mainTabs.AddTab("설정", BuildScrollableTabContent(BuildSettingsTab()));
         return _mainTabs;
     }
@@ -371,11 +355,26 @@ public sealed class LauncherForm : Form
 
     private Control BuildDocumentConnectionTab()
     {
-        var root = BuildTabLayout();
-        root.Controls.Add(BuildSectionTitle("기본 열기 방식"));
+        var root = new TableLayoutPanel
+        {
+            ColumnCount = 1,
+            RowCount = 3,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(2)
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-        var defaultRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Margin = new Padding(0, 0, 0, 18) };
-        defaultRow.Controls.Add(new Label { Text = "모든 문서:", AutoSize = true, Width = 150, Margin = new Padding(0, 7, 8, 0) });
+        var defaultRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Margin = new Padding(0, 0, 0, 16) };
+        defaultRow.Controls.Add(new Label
+        {
+            Text = "기본 열기 방식",
+            AutoSize = true,
+            Font = new Font("Segoe UI Variable Text Semibold", 11F, FontStyle.Bold),
+            Margin = new Padding(0, 4, 12, 0)
+        });
         _providerCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         _providerCombo.Items.AddRange(new object[] { "열 때마다 선택", "Microsoft 365", "Google Workspace (테스트)" });
         _providerCombo.SelectedIndex = _config.PreferredCloudProvider.ToLowerInvariant() switch
@@ -392,35 +391,70 @@ public sealed class LauncherForm : Form
         defaultRow.Controls.Add(_providerCombo);
         root.Controls.Add(defaultRow);
 
-        root.Controls.Add(BuildSectionTitle("확장자별 열기 방식"));
-        root.Controls.Add(new Label
+        var extensionHeading = new FlowLayoutPanel
         {
-            Text = "기본값과 다른 서비스로 열 확장자만 개별 지정할 수 있습니다.",
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        extensionHeading.Controls.Add(new Label
+        {
+            Text = "확장자별 열기 방식",
+            AutoSize = true,
+            Font = new Font("Segoe UI Variable Text Semibold", 11F, FontStyle.Bold),
+            Margin = new Padding(0, 0, 7, 0)
+        });
+        extensionHeading.Controls.Add(new Label
+        {
+            Text = "(기본값과 다른 서비스로 열 확장자만 개별 지정할 수 있습니다.)",
             AutoSize = true,
             Tag = ThemeApplier.SecondaryTag,
-            Margin = new Padding(0, 0, 0, 12)
+            Margin = new Padding(0, 3, 0, 0)
         });
+        root.Controls.Add(extensionHeading);
 
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, CellBorderStyle = TableLayoutPanelCellBorderStyle.Single };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
         grid.Controls.Add(CreateGridHeader("확장자"), 0, 0);
         grid.Controls.Add(CreateGridHeader("문서 형식"), 1, 0);
         grid.Controls.Add(CreateGridHeader("열기 방식"), 2, 0);
 
+        var catalog = new DocumentTypeCatalog(_config);
         var definitions = _config.DocumentTypes
-            .SelectMany(type => type.Extensions.Select(extension => (Extension: NormalizeExtension(extension), type.OfficeApp)))
-            .OrderBy(item => item.OfficeApp)
+            .SelectMany(type => type.Extensions.Select(extension => NormalizeExtension(extension)))
+            .Select(extension =>
+            {
+                catalog.TryResolve(extension, out var type);
+                return (Extension: extension, Type: type);
+            })
+            .Where(item => item.Type is not null)
+            .OrderBy(item => item.Type.OfficeApp)
             .ThenBy(item => item.Extension)
             .ToList();
-        var rowIndex = 1;
-        foreach (var definition in definitions)
+        for (var definitionIndex = 0; definitionIndex < definitions.Count; definitionIndex++)
         {
-            grid.Controls.Add(CreateGridCell(definition.Extension), 0, rowIndex);
-            grid.Controls.Add(CreateGridCell(definition.OfficeApp), 1, rowIndex);
+            var definition = definitions[definitionIndex];
+            var rowIndex = definitionIndex + 1;
 
-            var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, Margin = new Padding(8, 5, 8, 5) };
+            grid.Controls.Add(CreateGridCell(definition.Extension), 0, rowIndex);
+            grid.Controls.Add(CreateGridCell(definition.Type.OfficeApp), 1, rowIndex);
+
+            var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 288, Margin = new Padding(5, 3, 5, 3) };
+            if (definition.Type.SupportedProviders.Count == 1)
+            {
+                var provider = definition.Type.SupportedProviders.Single();
+                combo.Items.Add($"{provider.DisplayName()} 전용");
+                combo.SelectedIndex = 0;
+                combo.Enabled = false;
+                _config.DocumentProviderPreferences.Remove(definition.Extension);
+                _extensionProviderCombos[definition.Extension] = combo;
+                grid.Controls.Add(combo, 2, rowIndex);
+                continue;
+            }
+
             combo.Items.AddRange(new object[] { "기본값 따름", "열 때마다 선택", "Microsoft 365", "Google Workspace (테스트)" });
             var stored = _config.DocumentProviderPreferences.TryGetValue(definition.Extension, out var value) ? value : "Default";
             combo.SelectedIndex = stored.ToLowerInvariant() switch
@@ -439,9 +473,17 @@ public sealed class LauncherForm : Form
                 ConfigLoader.Save(_config);
             };
             _extensionProviderCombos[extension] = combo;
-            grid.Controls.Add(combo, 2, rowIndex++);
+            grid.Controls.Add(combo, 2, rowIndex);
         }
-        root.Controls.Add(grid);
+        var gridViewport = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            Margin = new Padding(0)
+        };
+        grid.Dock = DockStyle.Top;
+        gridViewport.Controls.Add(grid);
+        root.Controls.Add(gridViewport);
         return root;
     }
 
@@ -450,10 +492,10 @@ public sealed class LauncherForm : Form
         Text = text,
         AutoSize = false,
         Dock = DockStyle.Fill,
-        Height = 32,
+        Height = 30,
         TextAlign = ContentAlignment.MiddleLeft,
         Font = new Font("Segoe UI Variable Text", 9.5F, FontStyle.Bold),
-        Padding = new Padding(8, 0, 0, 0),
+        Padding = new Padding(5, 0, 0, 0),
         Margin = new Padding(0)
     };
 
@@ -462,9 +504,9 @@ public sealed class LauncherForm : Form
         Text = text,
         AutoSize = false,
         Dock = DockStyle.Fill,
-        Height = 36,
+        Height = 30,
         TextAlign = ContentAlignment.MiddleLeft,
-        Padding = new Padding(8, 0, 0, 0),
+        Padding = new Padding(5, 0, 0, 0),
         Margin = new Padding(0)
     };
 

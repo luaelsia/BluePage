@@ -1,4 +1,5 @@
 using Microsoft365OfficeWebLauncher.Config;
+using Microsoft365OfficeWebLauncher.Cloud;
 
 namespace Microsoft365OfficeWebLauncher.Core;
 
@@ -16,7 +17,14 @@ public sealed class DocumentTypeCatalog
 
         foreach (var docType in config.DocumentTypes)
         {
-            var definition = new OfficeAppDefinition(docType.OfficeApp, docType.Extensions);
+            var providers = docType.SupportedProviders.Count == 0
+                ? new HashSet<CloudProvider> { CloudProvider.Microsoft, CloudProvider.Google }
+                : docType.SupportedProviders
+                    .Select(value => CloudProviderNames.TryParse(value, out var provider) ? provider : (CloudProvider?)null)
+                    .Where(provider => provider.HasValue)
+                    .Select(provider => provider!.Value)
+                    .ToHashSet();
+            var definition = new OfficeAppDefinition(docType.OfficeApp, docType.Extensions, providers);
             foreach (var ext in docType.Extensions)
             {
                 _byExtension[Normalize(ext)] = definition;

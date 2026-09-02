@@ -25,8 +25,9 @@ public sealed class SyncSelectionDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(680, 380);
-        Font = new Font("Segoe UI", 9F);
+        Size = new Size(960, 600);
+        MinimumSize = new Size(760, 420);
+        Font = new Font("Segoe UI", 9.5F);
 
         _grid = BuildGrid();
         Controls.Add(_grid);
@@ -50,17 +51,19 @@ public sealed class SyncSelectionDialog : Form
             RowHeadersVisible = false,
             SelectionMode = DataGridViewSelectionMode.CellSelect,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            EditMode = DataGridViewEditMode.EditOnEnter
+            EditMode = DataGridViewEditMode.EditOnEnter,
+            ColumnHeadersHeight = 34,
+            RowTemplate = { Height = 30 }
         };
 
-        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "File", HeaderText = "파일", ReadOnly = true, FillWeight = 32 });
-        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "상태", ReadOnly = true, FillWeight = 18 });
-        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSynced", HeaderText = "마지막 동기화", ReadOnly = true, FillWeight = 20 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "File", HeaderText = "파일", ReadOnly = true, FillWeight = 38 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "상태", ReadOnly = true, FillWeight = 16 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSynced", HeaderText = "마지막 동기화", ReadOnly = true, FillWeight = 18 });
         grid.Columns.Add(new DataGridViewComboBoxColumn
         {
             Name = "Action",
             HeaderText = "실행할 동작",
-            FillWeight = 30,
+            FillWeight = 28,
             DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton
         });
 
@@ -99,6 +102,7 @@ public sealed class SyncSelectionDialog : Form
 
             row.Tag = detection.LocalFilePath;
             row.Cells["File"].Value = Path.GetFileName(detection.LocalFilePath);
+            row.Cells["File"].ToolTipText = detection.LocalFilePath;
             row.Cells["Status"].Value = StatusLabel(detection.DetectedState);
             row.Cells["LastSynced"].Value = FormatRelative(detection.LastSyncedUtc);
 
