@@ -911,6 +911,8 @@ public sealed class LauncherForm : Form
             if (!IsDisposed)
             {
                 RefreshSyncStatus();
+                // 동기화 도중 Google 로그인이 만료됐을 수 있으므로 계정 상태 표시를 같이 갱신한다.
+                await RefreshGoogleAccountStatusAsync();
             }
         }
     }
@@ -1118,6 +1120,17 @@ public sealed class LauncherForm : Form
                 _googleAccountActionButton.Text = "설정 확인";
                 return;
             }
+
+            // 저장된 리프레시 토큰이 만료/취소된 상태. 토큰 파일은 남아 있어도 쓸 수 없으므로
+            // "로그인됨"이 아니라 다시 로그인이 필요하다고 분명히 알린다.
+            if (_googleAuthService.ReauthenticationRequired)
+            {
+                _googleAccountStatusLabel.Text = "⚠ 다시 로그인 필요 · 테스트 OAuth";
+                _googleAccountStatusLabel.ForeColor = AppTheme.Current.Failure;
+                _googleAccountActionButton.Text = "다시 로그인";
+                return;
+            }
+            _googleAccountStatusLabel.ForeColor = AppTheme.Current.TextPrimary;
             _googleAccountStatusLabel.Text = _hasCachedGoogleAccount ? "● 로그인됨 · 테스트 OAuth" : "○ 로그인 안 됨 · 테스트 OAuth";
             _googleAccountActionButton.Text = _hasCachedGoogleAccount ? "로그아웃" : "지금 로그인";
         }
@@ -1139,13 +1152,23 @@ public sealed class LauncherForm : Form
         }
 
         _googleAccountActionButton.Enabled = false;
-        var loggingOut = _hasCachedGoogleAccount;
+        var reauthenticating = _googleAuthService.ReauthenticationRequired;
+        var loggingOut = !reauthenticating && _hasCachedGoogleAccount;
         _googleAccountStatusLabel.Text = loggingOut ? "로그아웃하는 중…" : "로그인하는 중…";
+
+        // 이 버튼은 사용자가 직접 누른 것이므로 이 흐름에서만 동의 창을 띄우도록 허용한다.
+        // (백그라운드 동기화는 계속 비대화형으로 두어 갑자기 브라우저가 뜨지 않게 한다.)
+        _googleAuthService.InteractiveAuthAllowed = true;
         try
         {
             if (loggingOut)
             {
                 await _googleAuthService.SignOutAsync();
+            }
+            else if (reauthenticating)
+            {
+                // 만료된 토큰은 버리고 동의 창을 강제로 띄운다.
+                await _googleAuthService.ForceInteractiveSignInAsync();
             }
             else
             {
@@ -1160,6 +1183,7 @@ public sealed class LauncherForm : Form
         }
         finally
         {
+            _googleAuthService.InteractiveAuthAllowed = false;
             _googleAccountActionButton.Enabled = true;
         }
     }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft365OfficeWebLauncher.Auth;
 using Microsoft365OfficeWebLauncher.Cloud;
 using Microsoft365OfficeWebLauncher.Config;
 using Microsoft365OfficeWebLauncher.Logging;
@@ -101,6 +102,12 @@ public sealed class LaunchOrchestrator
             result = waitDialog.SyncResult!;
             _logger.Info($"웹 문서 잠금 해제 후 동기화 완료: {fullPath} (상태: {result.State})");
         }
+        catch (GoogleReauthRequiredException ex)
+        {
+            _logger.Warn($"Google 로그인이 만료되어 동기화하지 못했습니다: {fullPath}");
+            ShowError(ex.Message);
+            return 1;
+        }
         catch (Exception ex)
         {
             _logger.Error($"동기화 실패: {fullPath}", ex);
@@ -167,8 +174,17 @@ public sealed class LaunchOrchestrator
         var paths = _manifest.AllEntries.Keys.ToList();
         _logger.Info($"전체 동기화 시작: {paths.Count}개 파일");
 
+        // Google 로그인이 만료된 상태에서 남은 파일까지 계속 시도하면 매 주기마다 같은 실패가 수십 번 쌓인다.
+        // 한 번 확인되면 이번 회차의 나머지 Google 파일은 건너뛰고, 사용자가 다시 로그인한 뒤에 재개한다.
+        var googleSignInExpired = false;
+
         foreach (var path in paths)
         {
+            if (googleSignInExpired && IsGoogleEntry(path))
+            {
+                continue;
+            }
+
             if (_deferredSyncRegistry.IsDeferred(path))
             {
                 _logger.Debug($"사용자가 동기화하지 않기로 한 파일은 백그라운드에서 건너뜁니다: {path}");
@@ -239,6 +255,12 @@ public sealed class LaunchOrchestrator
                 _logger.Info($"잠금 해제 후 웹 문서를 다시 열었습니다: {retryResult.WebUrl}");
                 ShowInfo($"동기화를 완료하고 웹 문서를 다시 열었습니다:\n{Path.GetFileName(path)}");
             }
+            catch (GoogleReauthRequiredException)
+            {
+                googleSignInExpired = true;
+                _logger.Warn("Google 로그인이 만료되어 이번 회차의 Google 문서 동기화를 건너뜁니다. " +
+                             "BluePage 창에서 Google 계정에 다시 로그인해 주세요.");
+            }
             catch (Exception ex)
             {
                 _logger.Error($"동기화 실패: {path}", ex);
@@ -247,6 +269,11 @@ public sealed class LaunchOrchestrator
 
         return 0;
     }
+
+    private bool IsGoogleEntry(string path) =>
+        _manifest.Get(path) is { } entry &&
+        CloudProviderNames.TryParse(entry.Provider, out var provider) &&
+        provider == CloudProvider.Google;
 
     /// <summary>동기화 검토 창용: 쓰기 없이 상태만 조회한다.</summary>
     public Task<SyncDetection> DetectSyncStatusAsync(string filePath, CancellationToken ct) =>
