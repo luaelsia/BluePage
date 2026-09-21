@@ -7,10 +7,11 @@ Office 문서를 Microsoft 365 또는 Google Workspace 웹 앱으로 열어 주�
 ## 설치 방법
 
 [최신 설치 파일 다운로드]
-https://github.com/luaelsia/BluePage/releases/latest/download/BluePage-v1.0.0-win-x64.zip
+https://github.com/luaelsia/BluePage/releases/latest/download/BluePage-Setup-v1.0.1.exe
 
-1. 다운로드한 ZIP의 압축을 풉니다.
-2. `install.ps1`을 실행합니다.
+1. 다운로드한 `BluePage-Setup-v1.0.1.exe`를 실행합니다. 관리자 권한은 필요 없습니다.
+   - 처음 실행할 때 Windows SmartScreen 경고가 뜨면 `추가 정보`를 누른 뒤 `실행`을 선택합니다. 코드 서명을 하지 않아서 뜨는 경고입니다.
+2. 설치 화면에서 `다음`을 누르면 `%LOCALAPPDATA%\Programs\BluePage`에 설치되고 연결 프로그램 후보로 자동 등록됩니다.
 3. Office 문서를 우클릭하고 `연결 프로그램` → `다른 앱 선택`에서 `Blue Page`를 선택합니다.
    - 앱 목록의 정렬 순서나 Windows의 목록 갱신 상태에 따라 `Blue Page`가 바로 보이지 않을 수 있습니다.
    - 이 경우 목록을 끝까지 확인하거나 `PC에서 앱 선택`을 누른 뒤
@@ -55,7 +56,7 @@ Blue Page는 앱이 생성하거나 사용자가 앱을 통해 연 파일만 접
 
 ## 제거
 
-다운로드한 폴더의 `uninstall.ps1`을 실행합니다.
+Windows `설정` > `앱` > `설치된 앱`에서 `Blue Page`를 제거합니다. 제거할 때 설정과 로그인 정보, 백업 파일을 함께 지울지 물어봅니다.
 
 ## 개발자
 
