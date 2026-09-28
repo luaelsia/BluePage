@@ -72,6 +72,7 @@ public sealed class SyncCoordinator
                 entry = new ManifestEntry
                 {
                     Provider = requestedProvider.Value.ToString(),
+                    DocumentId = entry.DocumentId,
                     Remotes = entry.Remotes
                 };
             }
@@ -85,9 +86,14 @@ public sealed class SyncCoordinator
             _activityReporter.ReportStarted(localFilePath);
             try
             {
-                var created = await service.CreateAsync(localFilePath, ct);
+                // 이미 다른 클라우드로 올린 적이 있으면 그때 발급한 문서 ID를 그대로 쓴다.
+                var documentId = string.IsNullOrWhiteSpace(entry?.DocumentId)
+                    ? RemoteFileNaming.NewDocumentId()
+                    : entry.DocumentId;
+                var created = await service.CreateAsync(localFilePath, RemoteFileNaming.Build(localFilePath, documentId), ct);
                 var newEntry = new ManifestEntry
                 {
+                    DocumentId = documentId,
                     Provider = provider.ToString(),
                     DriveItemId = created.Id,
                     WebUrl = created.WebUrl,

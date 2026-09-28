@@ -25,13 +25,13 @@ public sealed class GoogleDriveService : ICloudDriveService
     public CloudProvider Provider => CloudProvider.Google;
     public string DisplayName => "Google Workspace";
 
-    public Task<CloudFileMetadata> CreateAsync(string localFilePath, CancellationToken ct) =>
+    public Task<CloudFileMetadata> CreateAsync(string localFilePath, string remoteFileName, CancellationToken ct) =>
         ExecuteAsync(async (drive, token) =>
         {
             var folderId = await GetBluePageFolderIdAsync(drive, token);
             var metadata = new GoogleFile
             {
-                Name = Path.GetFileName(localFilePath),
+                Name = remoteFileName,
                 Parents = new[] { folderId }
             };
             await using var stream = File.OpenRead(localFilePath);

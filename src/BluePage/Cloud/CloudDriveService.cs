@@ -18,7 +18,8 @@ public interface ICloudDriveService
     CloudProvider Provider { get; }
     string DisplayName { get; }
 
-    Task<CloudFileMetadata> CreateAsync(string localFilePath, CancellationToken ct);
+    /// <summary>원격에 새 항목을 만든다. remoteFileName은 RemoteFileNaming.Build로 만든 충돌하지 않는 이름이다.</summary>
+    Task<CloudFileMetadata> CreateAsync(string localFilePath, string remoteFileName, CancellationToken ct);
     Task<CloudFileMetadata> UpdateAsync(string remoteFileId, string localFilePath, CancellationToken ct);
     Task<CloudFileMetadata> GetMetadataAsync(string remoteFileId, CancellationToken ct);
     Task DownloadAsync(string remoteFileId, string destinationPath, CancellationToken ct);
