@@ -17,6 +17,7 @@ public sealed class LaunchOrchestrator
     private readonly FileLogger _logger;
     private readonly DeferredSyncRegistry _deferredSyncRegistry;
     private readonly AppConfig _config;
+    private readonly HashSet<string> _reportedMissingFiles = new(StringComparer.OrdinalIgnoreCase);
 
     public LaunchOrchestrator(
         DocumentTypeCatalog catalog,
@@ -137,9 +138,7 @@ public sealed class LaunchOrchestrator
 
         if (result.State == SyncState.Conflict)
         {
-            ShowInfo(
-                "로컬 파일과 Office Web의 온라인 사본이 모두 변경되어 자동으로 병합할 수 없습니다.\n" +
-                $"온라인 사본을 아래 경로에 별도로 저장했습니다. 두 파일을 확인 후 직접 병합해 주세요.\n\n{result.ConflictCopyPath}");
+            ShowConflictCopySaved(result.ConflictCopyPath);
         }
 
         OpenInBrowser(result.WebUrl);
@@ -163,7 +162,7 @@ public sealed class LaunchOrchestrator
 
         if (result.State == SyncState.Conflict)
         {
-            ShowInfo($"충돌이 감지되어 온라인 사본을 별도 저장했습니다:\n{result.ConflictCopyPath}");
+            ShowConflictCopySaved(result.ConflictCopyPath);
         }
 
         return 0;
@@ -172,7 +171,12 @@ public sealed class LaunchOrchestrator
     public async Task<int> SyncAllAsync(CancellationToken ct)
     {
         var paths = _manifest.AllEntries.Keys.ToList();
-        _logger.Info($"전체 동기화 시작: {paths.Count}개 파일");
+        _logger.Debug($"전체 동기화 시작: {paths.Count}개 파일");
+
+        // 백그라운드 주기마다 호출되므로 아무 일도 없는 회차는 Info 로그를 남기지 않는다.
+        // 반영이나 실패가 있었던 회차만 끝에 요약 한 줄을 남긴다.
+        var appliedCount = 0;
+        var failedCount = 0;
 
         // Google 로그인이 만료된 상태에서 남은 파일까지 계속 시도하면 매 주기마다 같은 실패가 수십 번 쌓인다.
         // 한 번 확인되면 이번 회차의 나머지 Google 파일은 건너뛰고, 사용자가 다시 로그인한 뒤에 재개한다.
@@ -194,14 +198,27 @@ public sealed class LaunchOrchestrator
             if (!File.Exists(path))
             {
                 _deferredSyncRegistry.Resume(path);
-                _logger.Warn($"로컬에서 사라진 파일은 건너뜁니다: {path}");
+                // 같은 파일은 사라진 것을 처음 발견했을 때 한 번만 경고한다(다시 생겼다가 사라지면 다시 경고).
+                if (_reportedMissingFiles.Add(path))
+                {
+                    _logger.Warn($"로컬에서 사라진 파일은 건너뜁니다: {path}");
+                }
                 continue;
             }
+            _reportedMissingFiles.Remove(path);
 
             try
             {
                 var result = await _syncCoordinator.PrepareForOpenAsync(path, ct);
-                _logger.Info($"동기화됨: {path} (상태: {result.State})");
+                if (result.State == SyncState.NoChange)
+                {
+                    _logger.Debug($"동기화됨: {path} (상태: {result.State})");
+                }
+                else
+                {
+                    _logger.Info($"동기화됨: {path} (상태: {result.State})");
+                    appliedCount++;
+                }
                 if (result.State == SyncState.Skipped)
                 {
                     _deferredSyncRegistry.Defer(path);
@@ -231,12 +248,17 @@ public sealed class LaunchOrchestrator
                 if (waitDialog.SyncError is not null)
                 {
                     _logger.Error($"웹 문서 잠금 해제 후 백그라운드 동기화 실패: {path}", waitDialog.SyncError);
+                    failedCount++;
                     ShowError($"문서가 닫힌 후 동기화하는 중 오류가 발생했습니다.\n\n{waitDialog.SyncError.Message}");
                     continue;
                 }
 
                 var retryResult = waitDialog.SyncResult!;
                 _logger.Info($"웹 문서 잠금 해제 후 백그라운드 동기화 완료: {path} (상태: {retryResult.State})");
+                if (retryResult.State != SyncState.NoChange)
+                {
+                    appliedCount++;
+                }
 
                 if (retryResult.State == SyncState.Skipped)
                 {
@@ -246,9 +268,7 @@ public sealed class LaunchOrchestrator
 
                 if (retryResult.State == SyncState.Conflict)
                 {
-                    ShowInfo(
-                        "로컬 파일과 Office Web의 온라인 사본이 모두 변경되어 자동으로 병합할 수 없습니다.\n" +
-                        $"온라인 사본을 아래 경로에 별도로 저장했습니다. 두 파일을 확인 후 직접 병합해 주세요.\n\n{retryResult.ConflictCopyPath}");
+                    ShowConflictCopySaved(retryResult.ConflictCopyPath);
                 }
 
                 OpenInBrowser(retryResult.WebUrl);
@@ -258,13 +278,20 @@ public sealed class LaunchOrchestrator
             catch (GoogleReauthRequiredException)
             {
                 googleSignInExpired = true;
+                failedCount++;
                 _logger.Warn("Google 로그인이 만료되어 이번 회차의 Google 문서 동기화를 건너뜁니다. " +
                              "BluePage 창에서 Google 계정에 다시 로그인해 주세요.");
             }
             catch (Exception ex)
             {
                 _logger.Error($"동기화 실패: {path}", ex);
+                failedCount++;
             }
+        }
+
+        if (appliedCount > 0 || failedCount > 0)
+        {
+            _logger.Info($"전체 동기화 완료: {paths.Count}개 확인, 반영 {appliedCount}, 실패 {failedCount}");
         }
 
         return 0;
@@ -283,6 +310,17 @@ public sealed class LaunchOrchestrator
     public Task<SyncResult> ApplySyncActionAsync(string filePath, SyncAction action, CancellationToken ct)
     {
         _deferredSyncRegistry.Resume(Path.GetFullPath(filePath));
+
+        if (action == SyncAction.RemoveFromList)
+        {
+            // 동기화 목록에서만 뺀다. OneDrive/Google Drive의 온라인 사본과 로컬 백업은 그대로 둔다.
+            _manifest.Remove(filePath);
+            _manifest.Save();
+            _reportedMissingFiles.Remove(filePath);
+            _logger.Info($"동기화 목록에서 제거: {filePath}");
+            return Task.FromResult(new SyncResult(SyncState.Skipped, string.Empty, null));
+        }
+
         return _syncCoordinator.ApplyAsync(filePath, action, ct);
     }
 
@@ -324,6 +362,22 @@ public sealed class LaunchOrchestrator
     private static void OpenInBrowser(string url)
     {
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    /// <summary>충돌 사본 저장 안내. [폴더 열기]를 누르면 사본 파일이 선택된 상태로 탐색기를 연다.</summary>
+    public static void ShowConflictCopySaved(string? conflictCopyPath, IWin32Window? owner = null)
+    {
+        if (string.IsNullOrEmpty(conflictCopyPath))
+        {
+            return;
+        }
+
+        AppMessageDialog.ShowWithAction(
+            owner,
+            "로컬 파일과 Office Web의 온라인 사본이 모두 변경되어 자동으로 병합할 수 없습니다.\n" +
+            $"온라인 사본을 아래 경로에 별도로 저장했습니다. 두 파일을 확인 후 직접 병합해 주세요.\n\n{conflictCopyPath}",
+            "폴더 열기",
+            () => ExplorerLauncher.RevealFile(conflictCopyPath));
     }
 
     private static void ShowError(string message) =>

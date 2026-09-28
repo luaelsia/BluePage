@@ -10,7 +10,7 @@ public enum AppMessageKind
 /// <summary>앱의 모든 단일 확인 알림에 동일한 테마와 버튼 규격을 적용한다.</summary>
 public sealed class AppMessageDialog : Form
 {
-    private AppMessageDialog(string message, string title, AppMessageKind kind)
+    private AppMessageDialog(string message, string title, AppMessageKind kind, string? secondaryText = null)
     {
         Text = title;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -69,8 +69,20 @@ public sealed class AppMessageDialog : Form
         layout.SetColumnSpan(buttonPanel, 2);
         layout.Controls.Add(buttonPanel, 0, 1);
 
+        // 보조 버튼이 있으면 [보조] [확인] 순서로 두고, 보조 버튼은 DialogResult.Yes를 돌려준다.
         var okButton = new Button { Text = "확인", AutoSize = true, DialogResult = DialogResult.OK };
         buttonPanel.Controls.Add(okButton);
+        if (secondaryText is not null)
+        {
+            var secondaryButton = new Button
+            {
+                Text = secondaryText,
+                AutoSize = true,
+                DialogResult = DialogResult.Yes,
+                Margin = new Padding(0, 0, 8, 0)
+            };
+            buttonPanel.Controls.Add(secondaryButton);
+        }
         AcceptButton = okButton;
         CancelButton = okButton;
 
@@ -81,6 +93,21 @@ public sealed class AppMessageDialog : Form
     {
         using var dialog = new AppMessageDialog(message, title ?? AppBrand.Name, kind);
         return dialog.ShowDialog();
+    }
+
+    /// <summary>[보조 버튼] [확인] 두 개를 띄우고, 보조 버튼을 눌렀을 때만 action을 실행한다.</summary>
+    public static void ShowWithAction(IWin32Window? owner, string message, string actionText, Action action,
+        AppMessageKind kind = AppMessageKind.Information)
+    {
+        using var dialog = new AppMessageDialog(message, AppBrand.Name, kind, secondaryText: actionText);
+        if (owner is not null)
+        {
+            dialog.StartPosition = FormStartPosition.CenterParent;
+        }
+        if (dialog.ShowDialog(owner) == DialogResult.Yes)
+        {
+            action();
+        }
     }
 
     public static DialogResult Show(IWin32Window owner, string message, string? title = null, AppMessageKind kind = AppMessageKind.Information)
