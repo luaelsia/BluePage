@@ -90,11 +90,20 @@ public sealed partial class LauncherForm
 
         if (type.SupportedProviders.Count == 1)
         {
-            // 한 서비스에서만 열 수 있는 형식은 바꿀 수 없으므로 선택 상자 대신 배지로 보여 준다.
+            // 한 서비스에서만 열 수 있는 형식은 바꿀 수 없으므로 선택 상자 대신 흐린 글자로 보여 준다.
+            // 선택 상자와 같은 폭의 칸에 가운데 정렬해서 위아래 줄의 선택 상자와 좌우 위치를 맞춘다.
             _config.DocumentProviderPreferences.Remove(extension);
-            var badge = new StatusBadge { Anchor = AnchorStyles.Right };
-            badge.Set(BadgeKind.Neutral, $"{type.SupportedProviders.Single().DisplayName()} 전용");
-            row.Controls.Add(badge, 2, 0);
+            var fixedLabel = new Label
+            {
+                Text = $"{type.SupportedProviders.Single().DisplayName()} 전용",
+                AutoSize = false,
+                Size = new Size(SelectBox.DefaultWidth, UiDraw.S(34)),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Tag = ThemeApplier.SecondaryTag,
+                Anchor = AnchorStyles.Right,
+                Margin = new Padding(0)
+            };
+            row.Controls.Add(fixedLabel, 2, 0);
             return row;
         }
 

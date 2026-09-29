@@ -6,6 +6,9 @@ namespace Microsoft365OfficeWebLauncher.UI.Controls;
 /// </summary>
 internal sealed class SelectBox : Control
 {
+    /// <summary>기본 폭. 선택 상자 대신 글자를 둘 때도 이 폭에 맞춰 좌우 위치를 맞춘다.</summary>
+    public static int DefaultWidth => UiDraw.S(220);
+
     private readonly string[] _items;
     private int _selectedIndex = -1;
     private bool _hovered;
@@ -19,7 +22,7 @@ internal sealed class SelectBox : Control
         TabStop = true;
         Cursor = Cursors.Hand;
         Margin = new Padding(0);
-        Width = UiDraw.S(220);
+        Width = DefaultWidth;
         Height = TextRenderer.MeasureText("가", Font).Height + UiDraw.S(16);
     }
 
@@ -80,7 +83,7 @@ internal sealed class SelectBox : Control
             item.Click += (_, _) => SelectedIndex = index;
             menu.Items.Add(item);
         }
-        ThemedMenu.Apply(menu);
+        ThemedMenu.Apply(menu, centerText: true);
         menu.MinimumSize = new Size(Width, 0);
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
         menu.Show(this, new Point(0, Height + UiDraw.S(2)));
@@ -93,24 +96,32 @@ internal sealed class SelectBox : Control
         g.Clear(UiDraw.SurfaceBehind(this));
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
+        // 테두리 없이 바탕보다 살짝 밝은(라이트에서는 살짝 진한) 알약 모양으로 그린다.
+        // 테두리 선이 줄마다 반복되면 스크롤할 때 끊김이 더 눈에 띄기 때문이다. 포커스일 때만 강조색 테두리를 둔다.
+        var surface = UiDraw.SurfaceBehind(this);
         var bounds = new RectangleF(0.5F, 0.5F, Width - 1.5F, Height - 1.5F);
-        using (var path = UiDraw.RoundedRect(bounds, UiDraw.S(10)))
+        using (var path = UiDraw.RoundedRect(bounds, bounds.Height / 2))
         {
-            var back = _hovered && Enabled ? theme.ButtonHover : theme.ButtonBackground;
-            using var fill = new SolidBrush(back);
+            var amount = (AppTheme.IsDark ? 0.07F : 0.045F) + (_hovered && Enabled ? 0.04F : 0F);
+            using var fill = new SolidBrush(UiDraw.Blend(surface, theme.TextPrimary, amount));
             g.FillPath(fill, path);
-            using var border = new Pen(Focused ? theme.Accent : theme.ButtonBorder, Focused ? 1.5F : 1F);
-            g.DrawPath(border, path);
+            if (Focused)
+            {
+                using var border = new Pen(theme.Accent, 1.5F);
+                g.DrawPath(border, path);
+            }
         }
 
         var text = _selectedIndex >= 0 ? _items[_selectedIndex] : string.Empty;
         var textColor = Enabled ? theme.TextPrimary : theme.TextSecondary;
-        var textBounds = new Rectangle(UiDraw.S(12), 0, Width - UiDraw.S(40), Height);
+        // 오른쪽 ⌄와 겹치지 않도록 양쪽 여백을 같게 두고 가운데 정렬한다(고정 글자 칸과 가운데를 맞춘다).
+        var side = UiDraw.S(36);
+        var textBounds = new Rectangle(side, 0, Width - side * 2, Height);
         TextRenderer.DrawText(g, text, Font, textBounds, textColor,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
 
         using var iconFont = UiDraw.IconFont(7.5F);
-        var chevronBounds = new Rectangle(Width - UiDraw.S(32), 0, UiDraw.S(24), Height);
+        var chevronBounds = new Rectangle(Width - UiDraw.S(36), 0, UiDraw.S(24), Height);
         TextRenderer.DrawText(g, Glyphs.ChevronDown, iconFont, chevronBounds, theme.TextSecondary,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }

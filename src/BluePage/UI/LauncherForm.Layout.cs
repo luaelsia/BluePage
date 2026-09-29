@@ -271,19 +271,15 @@ public sealed partial class LauncherForm
         var card = new CardPanel { Padding = UiDraw.S(20, 4, 20, 4), Margin = new Padding(0, 0, 0, UiDraw.S(10)) };
         var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Margin = new Padding(0) };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        // 줄 사이 구분선은 두지 않는다. 가는 가로선이 규칙적으로 반복되면 스크롤할 때 끊김이 더 눈에 띈다.
         for (var i = 0; i < rows.Count; i++)
         {
-            if (i > 0)
-            {
-                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
-                table.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Fill, Margin = new Padding(0) });
-            }
             table.RowStyles.Add(new RowStyle(SizeType.Absolute, rowHeight));
             rows[i].Dock = DockStyle.Fill;
             table.Controls.Add(rows[i]);
         }
         card.Controls.Add(table);
-        card.Height = rows.Count * rowHeight + (rows.Count - 1) + card.Padding.Vertical;
+        card.Height = rows.Count * rowHeight + card.Padding.Vertical;
         return card;
     }
 
