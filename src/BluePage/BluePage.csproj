@@ -21,7 +21,7 @@
     <Authors>MiniWhaleLabs</Authors>
     <Description>Windows 탐색기에서 Office 문서를 Microsoft 365 또는 Google Workspace로 여는 문서 런처</Description>
     <Copyright>Copyright © MiniWhaleLabs</Copyright>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
