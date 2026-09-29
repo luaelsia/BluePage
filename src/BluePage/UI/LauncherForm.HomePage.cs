@@ -60,7 +60,7 @@ public sealed partial class LauncherForm
         _syncStatusLabel = Detail("확인하는 중...");
         _syncActionButton = CreateButton(SyncReviewButtonText, primary: true);
         _syncActionButton.Click += async (_, _) => await OnSyncActionAsync();
-        page.Add(BuildWideCard(new IconTile(Glyphs.Sync, BadgeKind.Warm, useIconFont: true), "동기화", _syncStatusLabel, null, _syncActionButton));
+        page.Add(BuildWideCard(new IconTile(Glyphs.Sync, BadgeKind.Warm, useIconFont: true), "동기화", _syncStatusLabel, _syncActionButton));
 
         return page.Root;
     }
@@ -97,8 +97,8 @@ public sealed partial class LauncherForm
         return card;
     }
 
-    /// <summary>한 줄짜리 넓은 카드: 아이콘, 제목(+배지)과 설명, 오른쪽 버튼들.</summary>
-    private static CardPanel BuildWideCard(IconTile tile, string title, Label detail, StatusBadge? badge, params Control[] buttons)
+    /// <summary>한 줄짜리 넓은 카드: 아이콘, 제목과 설명, 오른쪽 버튼들.</summary>
+    private static CardPanel BuildWideCard(IconTile tile, string title, Label detail, params Control[] buttons)
     {
         var card = new CardPanel { Height = UiDraw.S(86), Padding = UiDraw.S(18, 12, 18, 12), Margin = new Padding(0, 0, 0, UiDraw.S(10)) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0) };
@@ -111,20 +111,7 @@ public sealed partial class LauncherForm
         tile.Anchor = AnchorStyles.Left;
         layout.Controls.Add(tile, 0, 0);
 
-        var text = BuildTextStack(title, detail, CardTitleFont);
-        if (badge is not null)
-        {
-            // 제목 옆에 배지를 붙인다.
-            var titleLabel = text.GetControlFromPosition(0, 0)!;
-            text.Controls.Remove(titleLabel);
-            var titleRow = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Bottom, Margin = new Padding(0, 0, 0, UiDraw.S(1)) };
-            titleLabel.Margin = new Padding(0, UiDraw.S(1), UiDraw.S(8), 0);
-            titleRow.Controls.Add(titleLabel);
-            badge.Margin = new Padding(0, UiDraw.S(1), 0, 0);
-            titleRow.Controls.Add(badge);
-            text.Controls.Add(titleRow, 0, 0);
-        }
-        layout.Controls.Add(text, 1, 0);
+        layout.Controls.Add(BuildTextStack(title, detail, CardTitleFont), 1, 0);
 
         var buttonRow = BuildButtonRow(buttons);
         buttonRow.Anchor = AnchorStyles.Right;

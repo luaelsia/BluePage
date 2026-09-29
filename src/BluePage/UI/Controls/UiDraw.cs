@@ -65,8 +65,6 @@ internal static class Glyphs
     public const string Document = "";
     public const string Settings = "";
     public const string Sync = "";
-    public const string Link = "";
     public const string ChevronDown = "";
-    public const string CheckMark = "";
     public const string Info = "";
 }
