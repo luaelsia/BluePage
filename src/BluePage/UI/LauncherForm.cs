@@ -51,14 +51,6 @@ public sealed class LauncherForm : Form
     private NumericUpDown _syncIntervalInput = null!;
     private NotifyIcon _trayIcon = null!;
     private System.Windows.Forms.Timer _backgroundSyncTimer = null!;
-    private ToolStripMenuItem _trayAccountItem = null!;
-    private ToolStripMenuItem _trayGoogleAccountItem = null!;
-    private ToolStripMenuItem _trayFileAssocItem = null!;
-    private ToolStripMenuItem _trayAutoStartItem = null!;
-    private ToolStripMenuItem _trayStartMinimizedItem = null!;
-    private ToolStripMenuItem _traySharedPcItem = null!;
-    private ToolStripMenuItem _trayShowToastItem = null!;
-    private readonly List<ToolStripMenuItem> _trayIntervalItems = new();
     private EventWaitHandle _showWindowEvent = null!;
     private RegisteredWaitHandle? _showWindowRegisteredWait;
     private SyncActivityToast _activityToast = null!;
@@ -208,6 +200,13 @@ public sealed class LauncherForm : Form
         layout.Controls.Add(BuildSettingsGroup());
         layout.Controls.Add(BuildSectionTitle("관리", 18));
         layout.Controls.Add(BuildSettingsShortcutBar());
+        layout.Controls.Add(new Label
+        {
+            Text = "로컬 파일을 온라인 내용으로 덮어쓰기 전의 파일과 충돌 사본을 이 PC에 보관합니다.",
+            AutoSize = true,
+            Tag = ThemeApplier.SecondaryTag,
+            Margin = new Padding(0, 8, 0, 0)
+        });
         return layout;
     }
 
@@ -718,61 +717,17 @@ public sealed class LauncherForm : Form
     {
         var menu = new ContextMenuStrip();
 
+        // 트레이에는 창을 열지 않고 바로 쓰는 동작만 둔다. 계정, 파일 연결, 설정 항목은 창에서 다룬다.
         menu.Items.Add("열기", null, (_, _) => ShowFromTray());
-        menu.Items.Add(new ToolStripSeparator());
-
-        _trayAccountItem = new ToolStripMenuItem("지금 로그인");
-        _trayAccountItem.Click += async (_, _) => await OnAccountActionAsync();
-        menu.Items.Add(_trayAccountItem);
-
-        _trayGoogleAccountItem = new ToolStripMenuItem("Google 로그인 (테스트)");
-        _trayGoogleAccountItem.Click += async (_, _) => await OnGoogleAccountActionAsync();
-        menu.Items.Add(_trayGoogleAccountItem);
-
-        _trayFileAssocItem = new ToolStripMenuItem("파일 연결 등록");
-        _trayFileAssocItem.Click += (_, _) => OnFileAssocActionClicked();
-        menu.Items.Add(_trayFileAssocItem);
-
-        menu.Items.Add("기본 프로그램으로 설정…", null, (_, _) => OnOpenDefaultAppsUiClicked());
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add("동기화 검토…", null, async (_, _) => await OnSyncActionAsync());
         menu.Items.Add("OneDrive에서 보기…", null, async (_, _) => await OnOpenOneDriveClickedAsync());
         menu.Items.Add("Google Drive에서 보기…", null, async (_, _) => await OnOpenGoogleDriveClickedAsync());
-
-        var intervalMenu = new ToolStripMenuItem("자동 동기화 주기");
-        foreach (var seconds in new[] { 30, 60, 180, 300, 600 })
-        {
-            var item = new ToolStripMenuItem(FormatIntervalLabel(seconds)) { Tag = seconds };
-            item.Click += (_, _) => _syncIntervalInput.Value = seconds;
-            _trayIntervalItems.Add(item);
-            intervalMenu.DropDownItems.Add(item);
-        }
-        menu.Items.Add(intervalMenu);
+        menu.Items.Add("백업 폴더 열기", null, (_, _) => OpenBackupFolder());
         menu.Items.Add(new ToolStripSeparator());
 
-        _trayAutoStartItem = new ToolStripMenuItem("Windows 시작 시 자동 실행") { CheckOnClick = false };
-        _trayAutoStartItem.Click += (_, _) => _autoStartCheckBox.Checked = !_autoStartCheckBox.Checked;
-        menu.Items.Add(_trayAutoStartItem);
-
-        _trayStartMinimizedItem = new ToolStripMenuItem("   트레이로 최소화해서 시작") { CheckOnClick = false };
-        _trayStartMinimizedItem.Click += (_, _) => _startMinimizedCheckBox.Checked = !_startMinimizedCheckBox.Checked;
-        menu.Items.Add(_trayStartMinimizedItem);
-
-        _traySharedPcItem = new ToolStripMenuItem("공용 PC 모드") { CheckOnClick = false };
-        _traySharedPcItem.Click += (_, _) => _sharedPcCheckBox.Checked = !_sharedPcCheckBox.Checked;
-        menu.Items.Add(_traySharedPcItem);
-
-        _trayShowToastItem = new ToolStripMenuItem("동기화 알림 표시") { CheckOnClick = false };
-        _trayShowToastItem.Click += (_, _) => _showToastCheckBox.Checked = !_showToastCheckBox.Checked;
-        menu.Items.Add(_trayShowToastItem);
-        menu.Items.Add(new ToolStripSeparator());
-
-        menu.Items.Add("로그 폴더 열기", null, (_, _) => OpenLogFolder());
-        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => ExitApplication());
-
-        menu.Opening += (_, _) => RefreshTrayMenuState();
 
         _trayIcon = new NotifyIcon
         {
@@ -800,33 +755,6 @@ public sealed class LauncherForm : Form
         _config.ShowSyncToast = _showToastCheckBox.Checked;
         ConfigLoader.Save(_config);
         _logger.Info($"동기화 알림 표시 설정 변경: {_showToastCheckBox.Checked}");
-    }
-
-    /// <summary>트레이 메뉴를 열 때마다 현재 상태를 반영한다 — 원본 상태는 항상 창의 컨트롤들이 갖고 있으므로 거기서 읽어온다.</summary>
-    private void RefreshTrayMenuState()
-    {
-        _trayAccountItem.Text = _hasCachedAccount ? "로그아웃" : "지금 로그인";
-        _trayGoogleAccountItem.Text = _hasCachedGoogleAccount ? "Google 로그아웃 (테스트)" : "Google 로그인 (테스트)";
-
-        var registered = _registrar.IsRegistered();
-        _trayFileAssocItem.Text = registered ? "파일 연결 해제" : "파일 연결 등록";
-
-        _trayAutoStartItem.Checked = _autoStartCheckBox.Checked;
-        _trayStartMinimizedItem.Checked = _startMinimizedCheckBox.Checked;
-        _trayStartMinimizedItem.Enabled = _autoStartCheckBox.Checked;
-        _traySharedPcItem.Checked = _sharedPcCheckBox.Checked;
-        _trayShowToastItem.Checked = _showToastCheckBox.Checked;
-
-        foreach (var item in _trayIntervalItems)
-        {
-            item.Checked = (int)item.Tag! == (int)_syncIntervalInput.Value;
-        }
-    }
-
-    private static string FormatIntervalLabel(int seconds)
-    {
-        var label = seconds < 60 ? $"{seconds}초" : $"{seconds / 60}분";
-        return seconds == 180 ? $"{label} (기본)" : label;
     }
 
     private void BuildBackgroundSyncTimer()
@@ -895,7 +823,7 @@ public sealed class LauncherForm : Form
         }
 
         _syncInProgress = true;
-        _logger.Info("백그라운드 자동 동기화 시작");
+        _logger.Debug("백그라운드 자동 동기화 시작");
 
         try
         {
@@ -911,6 +839,8 @@ public sealed class LauncherForm : Form
             if (!IsDisposed)
             {
                 RefreshSyncStatus();
+                // 동기화 도중 Google 로그인이 만료됐을 수 있으므로 계정 상태 표시를 같이 갱신한다.
+                await RefreshGoogleAccountStatusAsync();
             }
         }
     }
@@ -1118,6 +1048,17 @@ public sealed class LauncherForm : Form
                 _googleAccountActionButton.Text = "설정 확인";
                 return;
             }
+
+            // 저장된 리프레시 토큰이 만료/취소된 상태. 토큰 파일은 남아 있어도 쓸 수 없으므로
+            // "로그인됨"이 아니라 다시 로그인이 필요하다고 분명히 알린다.
+            if (_googleAuthService.ReauthenticationRequired)
+            {
+                _googleAccountStatusLabel.Text = "⚠ 다시 로그인 필요 · 테스트 OAuth";
+                _googleAccountStatusLabel.ForeColor = AppTheme.Current.Failure;
+                _googleAccountActionButton.Text = "다시 로그인";
+                return;
+            }
+            _googleAccountStatusLabel.ForeColor = AppTheme.Current.TextPrimary;
             _googleAccountStatusLabel.Text = _hasCachedGoogleAccount ? "● 로그인됨 · 테스트 OAuth" : "○ 로그인 안 됨 · 테스트 OAuth";
             _googleAccountActionButton.Text = _hasCachedGoogleAccount ? "로그아웃" : "지금 로그인";
         }
@@ -1139,13 +1080,23 @@ public sealed class LauncherForm : Form
         }
 
         _googleAccountActionButton.Enabled = false;
-        var loggingOut = _hasCachedGoogleAccount;
+        var reauthenticating = _googleAuthService.ReauthenticationRequired;
+        var loggingOut = !reauthenticating && _hasCachedGoogleAccount;
         _googleAccountStatusLabel.Text = loggingOut ? "로그아웃하는 중…" : "로그인하는 중…";
+
+        // 이 버튼은 사용자가 직접 누른 것이므로 이 흐름에서만 동의 창을 띄우도록 허용한다.
+        // (백그라운드 동기화는 계속 비대화형으로 두어 갑자기 브라우저가 뜨지 않게 한다.)
+        _googleAuthService.InteractiveAuthAllowed = true;
         try
         {
             if (loggingOut)
             {
                 await _googleAuthService.SignOutAsync();
+            }
+            else if (reauthenticating)
+            {
+                // 만료된 토큰은 버리고 동의 창을 강제로 띄운다.
+                await _googleAuthService.ForceInteractiveSignInAsync();
             }
             else
             {
@@ -1160,6 +1111,7 @@ public sealed class LauncherForm : Form
         }
         finally
         {
+            _googleAuthService.InteractiveAuthAllowed = false;
             _googleAccountActionButton.Enabled = true;
         }
     }
@@ -1236,7 +1188,8 @@ public sealed class LauncherForm : Form
         // 더블클릭으로 열었던 다른 프로세스가 방금 기록한 최신 상태를 놓치지 않도록 항상 다시 읽어온다.
         _manifest.Reload();
 
-        var paths = _manifest.AllEntries.Keys.Where(File.Exists).ToList();
+        // 로컬에서 사라진 파일도 함께 보여 줘서 검토 창에서 목록에서 뺄 수 있게 한다.
+        var paths = _manifest.AllEntries.Keys.ToList();
         if (paths.Count == 0)
         {
             AppMessageDialog.Show(this, "동기화할 파일이 없습니다.", AppBrand.Name);
@@ -1266,11 +1219,16 @@ public sealed class LauncherForm : Form
             if (dialog.ShowDialog(this) == DialogResult.OK)
             {
                 var failures = new List<string>();
+                var conflictCopies = new List<string>();
                 foreach (var (path, action) in dialog.SelectedActions)
                 {
                     try
                     {
-                        await _orchestrator.ApplySyncActionAsync(path, action, CancellationToken.None);
+                        var result = await _orchestrator.ApplySyncActionAsync(path, action, CancellationToken.None);
+                        if (!string.IsNullOrEmpty(result.ConflictCopyPath))
+                        {
+                            conflictCopies.Add(result.ConflictCopyPath);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1288,6 +1246,20 @@ public sealed class LauncherForm : Form
                         this,
                         "일부 파일을 반영하지 못했습니다:\n\n" + string.Join("\n", failures),
                         AppBrand.Name, AppMessageKind.Warning);
+                }
+
+                if (conflictCopies.Count == 1)
+                {
+                    LaunchOrchestrator.ShowConflictCopySaved(conflictCopies[0], this);
+                }
+                else if (conflictCopies.Count > 1)
+                {
+                    AppMessageDialog.ShowWithAction(
+                        this,
+                        $"충돌 사본 {conflictCopies.Count}개를 백업 폴더에 저장했습니다. 두 파일을 확인 후 직접 병합해 주세요.\n\n" +
+                        string.Join("\n", conflictCopies.Select(Path.GetFileName)),
+                        "폴더 열기",
+                        () => ExplorerLauncher.OpenFolder(LocalBackupService.BackupRootDirectory));
                 }
             }
         }
@@ -1344,11 +1316,7 @@ public sealed class LauncherForm : Form
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{logDir}\"") { UseShellExecute = true });
     }
 
-    private static void OpenBackupFolder()
-    {
-        Directory.CreateDirectory(LocalBackupService.BackupRootDirectory);
-        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LocalBackupService.BackupRootDirectory}\"") { UseShellExecute = true });
-    }
+    private static void OpenBackupFolder() =>ExplorerLauncher.OpenFolder(LocalBackupService.BackupRootDirectory);
 
     private static string FormatRelative(DateTimeOffset time)
     {

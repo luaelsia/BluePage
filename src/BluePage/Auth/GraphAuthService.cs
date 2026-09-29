@@ -42,7 +42,7 @@ public sealed class GraphAuthService
                 : pca.AcquireTokenSilent(scopes, PublicClientApplication.OperatingSystemAccount);
 
             var result = await silentBuilder.ExecuteAsync(cancellationToken);
-            _logger.Info($"사일런트 로그인 성공 (account={result.Account?.Username})");
+            _logger.Debug($"사일런트 로그인 성공 (account={result.Account?.Username})");
             return result;
         }
         catch (MsalUiRequiredException)

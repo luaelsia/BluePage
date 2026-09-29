@@ -81,6 +81,12 @@ public static class ThemeApplier
                 comboBox.ForeColor = theme.TextPrimary;
                 break;
 
+            case TextBox textBox when textBox.Parent is not UpDownBase: // NumericUpDown 내부 입력칸은 제외
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+                textBox.BackColor = theme.ButtonBackground;
+                textBox.ForeColor = theme.TextPrimary;
+                break;
+
             case NumericUpDown numeric:
                 numeric.BackColor = theme.ButtonBackground;
                 numeric.ForeColor = theme.TextPrimary;

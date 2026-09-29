@@ -92,19 +92,18 @@ public sealed class OneDriveUploadService : ICloudDriveService
         }
     }
 
-    public async Task<DriveItem> CreateInAppFolderAsync(string localFilePath, CancellationToken ct)
+    public async Task<DriveItem> CreateInAppFolderAsync(string localFilePath, string remoteFileName, CancellationToken ct)
     {
         var (driveId, appRootId) = await GetBluePageFolderReferenceAsync(ct);
-        var fileName = Path.GetFileName(localFilePath);
         var fileInfo = new FileInfo(localFilePath);
 
-        _logger.Info($"OneDrive App Folder/BluePage에 새로 업로드: {fileName} ({fileInfo.Length:N0} bytes)");
+        _logger.Info($"OneDrive App Folder/BluePage에 새로 업로드: {remoteFileName} ({fileInfo.Length:N0} bytes)");
 
         if (fileInfo.Length <= SimpleUploadMaxBytes)
         {
             await using var stream = File.OpenRead(localFilePath);
             var item = await _graphClient.Drives[driveId].Items[appRootId]
-                .ItemWithPath(fileName)
+                .ItemWithPath(remoteFileName)
                 .Content
                 .PutAsync(stream, cancellationToken: ct);
             return item ?? throw new InvalidOperationException("업로드 응답이 비어 있습니다.");
@@ -112,7 +111,7 @@ public sealed class OneDriveUploadService : ICloudDriveService
 
         return await UploadLargeFileAsync(
             createSession: sessionBody => _graphClient.Drives[driveId].Items[appRootId]
-                .ItemWithPath(fileName).CreateUploadSession.PostAsync(sessionBody, cancellationToken: ct),
+                .ItemWithPath(remoteFileName).CreateUploadSession.PostAsync(sessionBody, cancellationToken: ct),
             localFilePath,
             ct);
     }
@@ -309,8 +308,8 @@ public sealed class OneDriveUploadService : ICloudDriveService
         return _bluePageFolderWebUrl ?? throw new InvalidOperationException("BluePage 폴더의 webUrl을 확인할 수 없습니다.");
     }
 
-    public async Task<CloudFileMetadata> CreateAsync(string localFilePath, CancellationToken ct) =>
-        ToCloudMetadata(await CreateInAppFolderAsync(localFilePath, ct));
+    public async Task<CloudFileMetadata> CreateAsync(string localFilePath, string remoteFileName, CancellationToken ct) =>
+        ToCloudMetadata(await CreateInAppFolderAsync(localFilePath, remoteFileName, ct));
 
     public async Task<CloudFileMetadata> UpdateAsync(string remoteFileId, string localFilePath, CancellationToken ct) =>
         ToCloudMetadata(await UpdateContentAsync(remoteFileId, localFilePath, ct));

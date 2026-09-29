@@ -17,7 +17,11 @@ public enum SyncState
     /// <summary>로컬 파일만 수정됨(또는 충돌 해결로 로컬을 선택) — 로컬 내용을 온라인으로 다시 올림.</summary>
     LocalOnlyChanged,
     /// <summary>양쪽 모두 변경됐고, 사용자가 "사본 생성"을 선택함 — 충돌 사본을 별도 생성.</summary>
-    Conflict
+    Conflict,
+    /// <summary>동기화 검토 전용: 드라이브는 있지만 로컬 파일이 사라짐.</summary>
+    LocalMissing,
+    /// <summary>동기화 검토 전용: 파일이 있던 드라이브 자체가 연결돼 있지 않음(외장 드라이브 등).</summary>
+    DriveMissing
 }
 
 public sealed record SyncResult(SyncState State, string WebUrl, string? ConflictCopyPath);
@@ -72,6 +76,7 @@ public sealed class SyncCoordinator
                 entry = new ManifestEntry
                 {
                     Provider = requestedProvider.Value.ToString(),
+                    DocumentId = entry.DocumentId,
                     Remotes = entry.Remotes
                 };
             }
@@ -85,10 +90,15 @@ public sealed class SyncCoordinator
             _activityReporter.ReportStarted(localFilePath);
             try
             {
-                var created = await service.CreateAsync(localFilePath, ct);
+                // 이미 다른 클라우드로 올린 적이 있으면 그때 발급한 문서 ID를 그대로 쓴다.
+                var documentId = string.IsNullOrWhiteSpace(entry?.DocumentId)
+                    ? RemoteFileNaming.NewDocumentId()
+                    : entry.DocumentId;
+                var created = await service.CreateAsync(localFilePath, RemoteFileNaming.Build(localFilePath, documentId), ct);
                 var newEntry = new ManifestEntry
                 {
                     Provider = provider.ToString(),
+                    DocumentId = documentId,
                     DriveItemId = created.Id,
                     WebUrl = created.WebUrl,
                     LastKnownLocalWriteUtc = File.GetLastWriteTimeUtc(localFilePath),
@@ -117,7 +127,7 @@ public sealed class SyncCoordinator
 
         if (!localChanged && !remoteChanged)
         {
-            _logger.Info($"변경 없음: {localFilePath}");
+            _logger.Debug($"변경 없음: {localFilePath}");
             return new SyncResult(SyncState.NoChange, entry.WebUrl, null);
         }
 
@@ -167,6 +177,20 @@ public sealed class SyncCoordinator
         var entry = _manifest.Get(localFilePath)
             ?? throw new InvalidOperationException($"추적 중이 아닌 파일입니다: {localFilePath}");
 
+        var lastSyncedUtc = entry.LastKnownLocalWriteUtc > entry.LastKnownRemoteModifiedUtc
+            ? entry.LastKnownLocalWriteUtc
+            : entry.LastKnownRemoteModifiedUtc;
+
+        // 로컬 파일이 없으면 온라인은 조회하지 않는다. 드라이브째 없으면(외장 드라이브 분리 등) 따로 구분한다.
+        if (!File.Exists(localFilePath))
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(localFilePath));
+            var missingState = string.IsNullOrEmpty(root) || Directory.Exists(root)
+                ? SyncState.LocalMissing
+                : SyncState.DriveMissing;
+            return new SyncDetection(localFilePath, missingState, default, entry.LastKnownRemoteModifiedUtc, lastSyncedUtc);
+        }
+
         var service = GetService(GetProvider(entry));
 
         var localWriteUtc = File.GetLastWriteTimeUtc(localFilePath);
@@ -183,10 +207,6 @@ public sealed class SyncCoordinator
             (true, false) => SyncState.LocalOnlyChanged,
             (true, true) => SyncState.Conflict
         };
-
-        var lastSyncedUtc = entry.LastKnownLocalWriteUtc > entry.LastKnownRemoteModifiedUtc
-            ? entry.LastKnownLocalWriteUtc
-            : entry.LastKnownRemoteModifiedUtc;
 
         return new SyncDetection(localFilePath, state, localWriteUtc, remoteModifiedUtc, lastSyncedUtc);
     }

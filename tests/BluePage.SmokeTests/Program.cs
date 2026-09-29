@@ -43,6 +43,20 @@ try
     Assert(manifestEntry.Activate("Google") && manifestEntry.DriveItemId == "google-file",
         "Google 원격 항목을 공급자 전환 후 복원하지 못했습니다.");
 
+    // 서로 다른 폴더의 동명 문서가 같은 원격 파일 이름을 쓰지 않아야 한다.
+    var documentIdA = RemoteFileNaming.NewDocumentId();
+    var documentIdB = RemoteFileNaming.NewDocumentId();
+    Assert(documentIdA != documentIdB, "문서 ID가 매번 새로 발급되지 않았습니다.");
+    var remoteNameA = RemoteFileNaming.Build(@"C:\FolderA\plan.docx", documentIdA);
+    var remoteNameB = RemoteFileNaming.Build(@"C:\FolderB\plan.docx", documentIdB);
+    Assert(remoteNameA != remoteNameB, "동명 문서가 같은 원격 파일 이름을 갖습니다.");
+    Assert(remoteNameA.EndsWith(".docx", StringComparison.Ordinal), "원격 파일 이름이 확장자를 잃었습니다.");
+
+    var freshEntry = new ManifestEntry();
+    var issued = freshEntry.EnsureDocumentId();
+    Assert(!string.IsNullOrWhiteSpace(issued), "문서 ID가 발급되지 않았습니다.");
+    Assert(freshEntry.EnsureDocumentId() == issued, "이미 발급된 문서 ID가 다시 발급되었습니다.");
+
     var defaultConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.default.json");
     var defaultConfig = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(defaultConfigPath))
         ?? throw new InvalidOperationException("기본 설정을 읽지 못했습니다.");
@@ -62,7 +76,7 @@ try
            !odtType.Supports(CloudProvider.Microsoft) && odtType.Supports(CloudProvider.Google),
         "ODT의 Google 전용 제한이 적용되지 않았습니다.");
 
-    Console.WriteLine("PASS: 동기화 보류/재개, 삭제 감지, 클라우드 공급자 전환, 확장자별 서비스 제한 테스트");
+    Console.WriteLine("PASS: 동기화 보류/재개, 삭제 감지, 클라우드 공급자 전환, 원격 파일 이름 충돌 방지, 확장자별 서비스 제한 테스트");
     return 0;
 }
 finally

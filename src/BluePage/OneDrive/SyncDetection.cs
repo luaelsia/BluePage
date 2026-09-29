@@ -10,7 +10,9 @@ public enum SyncAction
     /// <summary>로컬 내용을 온라인으로 반영(온라인 덮어씀).</summary>
     PushLocalToRemote,
     /// <summary>온라인 사본을 별도 파일로 저장하고 로컬 원본은 보존(충돌 상황의 안전한 기본값).</summary>
-    CreateConflictCopy
+    CreateConflictCopy,
+    /// <summary>로컬에서 사라진 파일을 동기화 목록에서 뺀다(온라인 사본과 백업은 지우지 않음).</summary>
+    RemoveFromList
 }
 
 /// <summary>업로드/다운로드 없이 조회만 한 결과 — 동기화 검토 창에 표시할 정보.</summary>

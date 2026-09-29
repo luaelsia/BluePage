@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft365OfficeWebLauncher.Cloud;
 
 namespace Microsoft365OfficeWebLauncher.OneDrive;
 
@@ -7,6 +8,14 @@ public sealed class ManifestEntry
 {
     [JsonPropertyName("provider")]
     public string Provider { get; set; } = "Microsoft";
+
+    /// <summary>
+    /// 이 로컬 문서에 최초 업로드 시점에 한 번 발급되는 식별자. 원격 파일 이름에 붙여
+    /// 이름이 같은 다른 문서와 같은 원격 항목을 공유하지 않게 만든다(RemoteFileNaming 참고).
+    /// 한 번 발급되면 바뀌지 않으며, 같은 문서를 다른 클라우드로 올릴 때도 같은 값을 쓴다.
+    /// </summary>
+    [JsonPropertyName("documentId")]
+    public string DocumentId { get; set; } = string.Empty;
 
     [JsonPropertyName("driveItemId")]
     public string DriveItemId { get; set; } = string.Empty;
@@ -22,6 +31,16 @@ public sealed class ManifestEntry
 
     [JsonPropertyName("remotes")]
     public Dictionary<string, RemoteManifestEntry> Remotes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>문서 ID가 아직 없으면(신규 문서이거나 이전 버전에서 만든 매니페스트이면) 지금 발급한다.</summary>
+    public string EnsureDocumentId()
+    {
+        if (string.IsNullOrWhiteSpace(DocumentId))
+        {
+            DocumentId = RemoteFileNaming.NewDocumentId();
+        }
+        return DocumentId;
+    }
 
     public void SaveActiveRemote()
     {

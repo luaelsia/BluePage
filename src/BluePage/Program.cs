@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Windows.Forms;
 using Microsoft365OfficeWebLauncher.Auth;
 using Microsoft365OfficeWebLauncher.Cloud;
@@ -108,7 +108,12 @@ internal static class Program
             return 0;
         }
 
-        var orchestrator = BuildServices(config, logger).Orchestrator;
+        var cliServices = BuildServices(config, logger);
+        var orchestrator = cliServices.Orchestrator;
+
+        // 문서 더블클릭 열기/CLI 동기화는 사용자가 직접 시작한 흐름이라, 저장된 Google 토큰이 만료됐을 때
+        // 그 자리에서 동의 창을 띄워 다시 로그인해도 된다(트레이 상주 인스턴스는 이 권한 없이 동작한다).
+        cliServices.GoogleAuthService.InteractiveAuthAllowed = true;
 
         if (string.Equals(command, "--sync-all", StringComparison.OrdinalIgnoreCase))
         {
