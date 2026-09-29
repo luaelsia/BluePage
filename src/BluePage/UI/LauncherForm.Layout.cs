@@ -10,6 +10,25 @@ public sealed partial class LauncherForm
 
     private readonly List<(NavItem Nav, Control Page)> _pages = new();
     private readonly SmoothScroller _smoothScroller = new();
+    private readonly List<ScrollableControl> _scrollablePages = new();
+    private bool _scrollFadesCreated;
+
+    /// <summary>
+    /// 스크롤 화면 위아래의 흐림 띠를 만든다(보통 세기 30px).
+    /// 레이어드 자식 창은 부모 창이 실제로 만들어진 뒤에만 만들 수 있어서, 창이 처음 뜬 뒤(Shown)에 부른다.
+    /// </summary>
+    private void CreateScrollFades()
+    {
+        if (_scrollFadesCreated)
+        {
+            return;
+        }
+        _scrollFadesCreated = true;
+        foreach (var page in _scrollablePages)
+        {
+            _ = new ScrollFades(page, _pageHost, _smoothScroller, UiDraw.S(30));
+        }
+    }
     private Panel _pageHost = null!;
 
     private static readonly Font TitleFont = new("Segoe UI Variable Display", 17F, FontStyle.Bold);
@@ -151,6 +170,7 @@ public sealed partial class LauncherForm
         if (page is ScrollableControl { AutoScroll: true } scrollable)
         {
             _smoothScroller.Register(scrollable);
+            _scrollablePages.Add(scrollable);
         }
         _pageHost.Controls.Add(page);
         _pages.Add((nav, page));
@@ -175,8 +195,11 @@ public sealed partial class LauncherForm
 
         public PageStack(string title, string? subtitle)
         {
-            Root = new Panel { AutoScroll = true, Padding = UiDraw.S(32, 26, 32, 24), Margin = new Padding(0) };
-            _stack = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, Margin = new Padding(0) };
+            // 끝까지 스크롤했을 때 마지막 카드가 창 바닥에 붙지 않도록 아래에 여유를 둔다.
+            // 자동 스크롤 범위는 패널의 Padding을 넣지 않고 안쪽 내용의 끝까지만 계산하므로,
+            // 여유는 패널이 아니라 내용 묶음(_stack)의 아래 Padding으로 준다.
+            Root = new Panel { AutoScroll = true, Padding = UiDraw.S(32, 26, 32, 0), Margin = new Padding(0) };
+            _stack = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, Margin = new Padding(0), Padding = new Padding(0, 0, 0, UiDraw.S(100)) };
             _stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             Root.Controls.Add(_stack);
 

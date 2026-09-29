@@ -67,7 +67,7 @@ public static class ThemeApplier
                 break;
 
             // 직접 그리는 컨트롤은 그릴 때 AppTheme.Current를 읽으므로 다시 그리기만 하면 된다.
-            case ToggleSwitch or StatusBadge or IconTile or SegmentedControl or SelectBox or NavItem or FoldCorner or WhaleFooter:
+            case ToggleSwitch or StatusBadge or IconTile or SegmentedControl or SelectBox or NavItem or FoldCorner or WhaleFooter or FadeEdge:
                 control.Invalidate();
                 break;
 

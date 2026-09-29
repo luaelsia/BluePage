@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows 10/11 지원을 선언한다. 이 선언이 있어야 스크롤 가장자리 흐림에 쓰는
+  레이어드 자식 창(WS_EX_LAYERED 자식 창, Windows 8 이상)을 만들 수 있다.
+  DPI 설정은 여기서 하지 않고 ApplicationConfiguration(기본값)을 그대로 쓴다.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="BluePage.app"/>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10, Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+</assembly>

@@ -113,6 +113,7 @@ public sealed partial class LauncherForm : Form
 
     private void OnShown(object? sender, EventArgs e)
     {
+        CreateScrollFades();
         if (_launchMinimizedToTray)
         {
             Hide();

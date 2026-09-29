@@ -13,6 +13,7 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>..\..\resources\BluePage.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
