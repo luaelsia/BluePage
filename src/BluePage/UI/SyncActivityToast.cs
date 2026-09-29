@@ -62,7 +62,7 @@ public sealed class SyncActivityToast : Form, ISyncActivityReporter
         TopMost = true;
         AllowTransparency = true;
         Opacity = 0;
-        Font = new Font("Segoe UI", 9F);
+        Font = new Font("Segoe UI Variable Text", 9F);
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         MinimumSize = new Size(260, 0);

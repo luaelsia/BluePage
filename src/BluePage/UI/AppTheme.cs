@@ -22,7 +22,18 @@ public sealed record ThemePalette(
     Color Accent,
     Color Link,
     Color Success,
-    Color Failure);
+    Color Failure,
+    Color Sidebar,
+    Color AccentSoft,
+    Color AccentSoftText,
+    Color OnAccent,
+    Color SuccessSoft,
+    Color SuccessSoftText,
+    Color WarningSoft,
+    Color WarningSoftText,
+    Color DangerSoft,
+    Color DangerSoftText,
+    Color NeutralSoft);
 
 /// <summary>
 /// 다크 모드 상태를 앱 전체에서 공유하는 곳. 기본값은 "시스템 설정 따라가기"이며,
@@ -30,33 +41,57 @@ public sealed record ThemePalette(
 /// </summary>
 public static class AppTheme
 {
+    // 앱 아이콘의 색에서 가져온 팔레트: 청록(바다) = 주요 강조색, 코랄(노을) = 보조 강조색,
+    // 크림(접힌 모서리) = 배경. 상태 색도 이 톤에 맞춰 채도를 낮췄다.
     private static readonly ThemePalette LightPalette = new(
-        Background: Color.FromArgb(243, 243, 243),
-        CardBackground: Color.FromArgb(255, 255, 255),
-        Border: Color.FromArgb(218, 218, 218),
-        TextPrimary: Color.FromArgb(26, 26, 26),
-        TextSecondary: Color.FromArgb(96, 96, 96),
-        ButtonBackground: Color.FromArgb(251, 251, 251),
-        ButtonBorder: Color.FromArgb(192, 192, 192),
-        ButtonHover: Color.FromArgb(238, 238, 238),
-        Accent: Color.FromArgb(0, 95, 184),
-        Link: Color.FromArgb(15, 118, 110),
-        Success: Color.FromArgb(16, 124, 16),
-        Failure: Color.FromArgb(196, 43, 28));
+        Background: Color.FromArgb(251, 247, 240),
+        CardBackground: Color.FromArgb(255, 253, 249),
+        Border: Color.FromArgb(234, 223, 205),
+        TextPrimary: Color.FromArgb(47, 58, 58),
+        TextSecondary: Color.FromArgb(110, 119, 117),
+        ButtonBackground: Color.FromArgb(255, 253, 249),
+        ButtonBorder: Color.FromArgb(220, 207, 186),
+        ButtonHover: Color.FromArgb(244, 236, 223),
+        Accent: Color.FromArgb(30, 130, 132),
+        Link: Color.FromArgb(30, 122, 124),
+        Success: Color.FromArgb(46, 125, 85),
+        Failure: Color.FromArgb(192, 70, 61),
+        Sidebar: Color.FromArgb(244, 236, 223),
+        AccentSoft: Color.FromArgb(216, 238, 236),
+        AccentSoftText: Color.FromArgb(22, 112, 111),
+        OnAccent: Color.FromArgb(255, 255, 255),
+        SuccessSoft: Color.FromArgb(221, 240, 230),
+        SuccessSoftText: Color.FromArgb(31, 112, 72),
+        WarningSoft: Color.FromArgb(252, 233, 214),
+        WarningSoftText: Color.FromArgb(165, 88, 42),
+        DangerSoft: Color.FromArgb(252, 227, 218),
+        DangerSoftText: Color.FromArgb(184, 72, 63),
+        NeutralSoft: Color.FromArgb(239, 231, 218));
 
     private static readonly ThemePalette DarkPalette = new(
-        Background: Color.FromArgb(32, 32, 32),
-        CardBackground: Color.FromArgb(43, 43, 43),
-        Border: Color.FromArgb(70, 70, 70),
-        TextPrimary: Color.FromArgb(255, 255, 255),
-        TextSecondary: Color.FromArgb(197, 197, 197),
-        ButtonBackground: Color.FromArgb(51, 51, 51),
-        ButtonBorder: Color.FromArgb(85, 85, 85),
-        ButtonHover: Color.FromArgb(66, 66, 66),
-        Accent: Color.FromArgb(76, 194, 255),
-        Link: Color.FromArgb(45, 212, 191),
-        Success: Color.FromArgb(108, 203, 95),
-        Failure: Color.FromArgb(255, 153, 164));
+        Background: Color.FromArgb(29, 38, 39),
+        CardBackground: Color.FromArgb(37, 49, 50),
+        Border: Color.FromArgb(52, 66, 63),
+        TextPrimary: Color.FromArgb(237, 230, 216),
+        TextSecondary: Color.FromArgb(155, 165, 162),
+        ButtonBackground: Color.FromArgb(43, 56, 57),
+        ButtonBorder: Color.FromArgb(62, 78, 77),
+        ButtonHover: Color.FromArgb(51, 66, 66),
+        Accent: Color.FromArgb(108, 195, 189),
+        Link: Color.FromArgb(127, 207, 200),
+        Success: Color.FromArgb(143, 211, 168),
+        Failure: Color.FromArgb(244, 164, 147),
+        Sidebar: Color.FromArgb(23, 32, 33),
+        AccentSoft: Color.FromArgb(35, 65, 63),
+        AccentSoftText: Color.FromArgb(143, 211, 204),
+        OnAccent: Color.FromArgb(16, 48, 47),
+        SuccessSoft: Color.FromArgb(36, 69, 54),
+        SuccessSoftText: Color.FromArgb(159, 221, 182),
+        WarningSoft: Color.FromArgb(74, 55, 39),
+        WarningSoftText: Color.FromArgb(242, 190, 143),
+        DangerSoft: Color.FromArgb(74, 46, 43),
+        DangerSoftText: Color.FromArgb(244, 164, 147),
+        NeutralSoft: Color.FromArgb(47, 59, 59));
 
     public static ThemePreference Preference { get; private set; } = ThemePreference.System;
 

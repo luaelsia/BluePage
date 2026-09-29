@@ -51,7 +51,7 @@ public sealed class WebDocumentUnlockDialog : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         MinimumSize = new Size(360, 0);
         MaximumSize = new Size(400, 340);
-        Font = new Font("Segoe UI", 9F);
+        Font = new Font("Segoe UI Variable Text", 9.5F);
 
         _border = new Panel { Padding = new Padding(1), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         _layout = new TableLayoutPanel
@@ -112,9 +112,9 @@ public sealed class WebDocumentUnlockDialog : Form
             Margin = new Padding(0)
         };
 
-        _syncButton = new Button { Text = "동기화", AutoSize = true, Enabled = false };
+        _syncButton = new ModernButton { Text = "동기화", AutoSize = true, Enabled = false, IsPrimary = true };
         _syncButton.Click += async (_, _) => await StartSyncAsync();
-        var stopButton = new Button { Text = "나중에", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
+        var stopButton = new ModernButton { Text = "나중에", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
         stopButton.Click += (_, _) => StopSynchronization("사용자가 나중에 동기화하기로 했습니다.");
         buttonPanel.Controls.Add(_syncButton);
         buttonPanel.Controls.Add(stopButton);

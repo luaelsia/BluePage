@@ -27,3 +27,12 @@ public interface IConflictResolver
 {
     ConflictResolutionChoice Resolve(ConflictInfo info);
 }
+
+/// <summary>
+/// 창을 띄울 수 없는 흐름(--url처럼 AI가 실행하는 CLI)용. 충돌이면 어느 쪽도 바꾸지 않고 건너뛴다.
+/// 호출한 쪽은 SyncState.Skipped를 보고 충돌로 보고한다.
+/// </summary>
+public sealed class NonInteractiveConflictResolver : IConflictResolver
+{
+    public ConflictResolutionChoice Resolve(ConflictInfo info) => ConflictResolutionChoice.Skip;
+}

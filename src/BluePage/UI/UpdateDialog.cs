@@ -32,7 +32,7 @@ public sealed class UpdateDialog : Form
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(560, 420);
-        Font = new Font("Segoe UI", 9.5F);
+        Font = new Font("Segoe UI Variable Text", 9.5F);
 
         var layout = new TableLayoutPanel
         {
@@ -52,7 +52,7 @@ public sealed class UpdateDialog : Form
         {
             Text = $"새 버전 {update.DisplayVersion}을(를) 설치할 수 있습니다.",
             AutoSize = true,
-            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+            Font = new Font("Segoe UI Variable Display", 12F, FontStyle.Bold),
             Margin = new Padding(0, 0, 0, 4)
         });
 
@@ -100,18 +100,18 @@ public sealed class UpdateDialog : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(0)
         };
-        _laterButton = new Button { Text = "나중에", AutoSize = true };
+        _laterButton = new ModernButton { Text = "나중에", AutoSize = true };
         _laterButton.Click += (_, _) => OnLaterClicked();
-        _skipButton = new Button { Text = "이 버전 건너뛰기", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
+        _skipButton = new ModernButton { Text = "이 버전 건너뛰기", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
         _skipButton.Click += (_, _) =>
         {
             DialogResult = DialogResult.Ignore;
             Close();
         };
-        _releasePageButton = new Button { Text = "릴리스 페이지", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
+        _releasePageButton = new ModernButton { Text = "릴리스 페이지", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
         _releasePageButton.Click += (_, _) =>
             Process.Start(new ProcessStartInfo(update.ReleasePageUrl) { UseShellExecute = true });
-        _updateButton = new Button { Text = "지금 업데이트", AutoSize = true, Margin = new Padding(0, 0, 8, 0), Enabled = update.InstallerUrl is not null };
+        _updateButton = new ModernButton { Text = "지금 업데이트", AutoSize = true, Margin = new Padding(0, 0, 8, 0), Enabled = update.InstallerUrl is not null, IsPrimary = true };
         _updateButton.Click += async (_, _) => await OnUpdateClickedAsync();
         buttons.Controls.Add(_laterButton);
         buttons.Controls.Add(_skipButton);

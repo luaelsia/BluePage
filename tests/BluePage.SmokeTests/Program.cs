@@ -76,7 +76,52 @@ try
            !odtType.Supports(CloudProvider.Microsoft) && odtType.Supports(CloudProvider.Google),
         "ODT의 Google 전용 제한이 적용되지 않았습니다.");
 
-    Console.WriteLine("PASS: 동기화 보류/재개, 삭제 감지, 클라우드 공급자 전환, 원격 파일 이름 충돌 방지, 확장자별 서비스 제한 테스트");
+    // --url: 보기 모드 주소 변환
+    var editUrl = "https://contoso-my.sharepoint.com/personal/u/_layouts/15/Doc.aspx?sourcedoc=%7BA%7D&file=a.docx&action=default&mobileredirect=true";
+    var viewUrl = AiAccess.ToViewUrl(editUrl, out var viewOnly);
+    Assert(viewOnly && viewUrl.Contains("action=view") && !viewUrl.Contains("action=default"),
+        "Doc.aspx 주소가 보기 모드로 바뀌지 않았습니다.");
+    Assert(viewUrl.Contains("sourcedoc=%7BA%7D") && viewUrl.Contains("file=a.docx"),
+        "보기 모드 변환에서 기존 파라미터가 사라졌습니다.");
+    var shortUrl = "https://1drv.ms/w/c/abc/EXAMPLE";
+    Assert(AiAccess.ToViewUrl(shortUrl, out var shortViewOnly) == shortUrl && !shortViewOnly,
+        "변환할 수 없는 주소를 바꾸거나 보기 전용으로 잘못 표시했습니다.");
+
+    // --url: 등록되지 않은 문서는 거부
+    Assert(!AiAccess.IsRegistered(null), "매니페스트에 없는 문서를 등록된 문서로 판단했습니다.");
+    Assert(!AiAccess.IsRegistered(new ManifestEntry()), "온라인 사본이 없는 항목을 등록된 문서로 판단했습니다.");
+    Assert(AiAccess.IsRegistered(manifestEntry), "온라인 사본이 있는 항목을 등록되지 않은 문서로 판단했습니다.");
+
+    // --url: 충돌이면 창 없이 건너뛴다
+    Assert(new NonInteractiveConflictResolver().Resolve(new ConflictInfo(sample, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow))
+           == ConflictResolutionChoice.Skip, "창 없는 충돌 처리기가 Skip 이외의 동작을 골랐습니다.");
+
+    // --url: JSON 형식 (성공이면 주소와 규칙, 실패면 주소 없이 오류 코드)
+    var success = AiUrlResult.Success(sample, "Microsoft", SyncState.LocalOnlyChanged, editUrl);
+    using (var json = JsonDocument.Parse(AiAccess.ToJson(success)))
+    {
+        var root = json.RootElement;
+        Assert(root.GetProperty("ok").GetBoolean() && root.GetProperty("url").GetString() == viewUrl,
+            "성공 JSON에 보기 모드 주소가 들어가지 않았습니다.");
+        Assert(root.GetProperty("syncState").GetString() == "LocalOnlyChanged", "성공 JSON의 syncState가 잘못되었습니다.");
+        Assert(root.GetProperty("rules").GetArrayLength() == AiAccess.Rules.Count, "성공 JSON에 규칙이 빠졌습니다.");
+        Assert(!root.TryGetProperty("error", out _), "성공 JSON에 error가 들어갔습니다.");
+    }
+    var failure = AiUrlResult.Fail(sample, AiUrlError.Conflict, "충돌");
+    Assert(failure.ExitCode == 3, "충돌 종료 코드가 3이 아닙니다.");
+    using (var json = JsonDocument.Parse(AiAccess.ToJson(failure)))
+    {
+        var root = json.RootElement;
+        Assert(!root.GetProperty("ok").GetBoolean() && root.GetProperty("error").GetString() == "conflict",
+            "실패 JSON의 오류 코드가 잘못되었습니다.");
+        Assert(!root.TryGetProperty("url", out _), "실패 JSON에 주소가 들어갔습니다.");
+        Assert(!root.TryGetProperty("ExitCode", out _), "JSON에 내부용 ExitCode가 들어갔습니다.");
+        Assert(root.GetProperty("rules").GetArrayLength() > 0, "실패 JSON에 규칙이 빠졌습니다.");
+    }
+
+    Assert(AiAccess.ReadGuide().Contains("--url"), "AI 지침 리소스를 읽지 못했습니다.");
+
+    Console.WriteLine("PASS: 동기화 보류/재개, 삭제 감지, 클라우드 공급자 전환, 원격 파일 이름 충돌 방지, 확장자별 서비스 제한, AI 주소 요청 테스트");
     return 0;
 }
 finally
