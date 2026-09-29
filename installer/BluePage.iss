@@ -78,8 +78,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 ; 파일 연결 후보 등록(HKCU). 설치 화면 뒤에서 조용히 끝난다.
 Filename: "{app}\{#AppExeName}"; Parameters: "--register"; Flags: runhidden waituntilterminated
-; 설치 마지막 화면의 "Blue Page 실행" 체크 항목. 무인 설치(/SILENT)에서는 실행하지 않는다.
+; 설치 마지막 화면의 "Blue Page 실행" 체크 항목. 무인 설치(/SILENT)에서는 아래 항목이 대신 실행한다.
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchAfterInstall,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; 무인 설치(/SILENT, /VERYSILENT)는 앱 안의 업데이트가 쓰는 경로다. 설치가 끝나면 항상 다시 실행한다.
+Filename: "{app}\{#AppExeName}"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{app}\{#AppExeName}"; Parameters: "--unregister"; Flags: runhidden waituntilterminated; RunOnceId: "Unregister"
