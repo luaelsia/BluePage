@@ -1,4 +1,6 @@
-﻿using System.Threading;
+﻿using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft365OfficeWebLauncher.Auth;
 using Microsoft365OfficeWebLauncher.Cloud;
@@ -108,6 +110,17 @@ internal static class Program
             return 0;
         }
 
+        if (string.Equals(command, "--ai-guide", StringComparison.OrdinalIgnoreCase))
+        {
+            WriteStdout(AiAccess.ReadGuide());
+            return 0;
+        }
+
+        if (string.Equals(command, "--url", StringComparison.OrdinalIgnoreCase))
+        {
+            return await RunUrlCommandAsync(args, config, logger);
+        }
+
         var cliServices = BuildServices(config, logger);
         var orchestrator = cliServices.Orchestrator;
 
@@ -135,7 +148,69 @@ internal static class Program
         return await orchestrator.OpenAsync(command, CancellationToken.None);
     }
 
-    private static AppServices BuildServices(AppConfig config, FileLogger logger)
+    /// <summary>
+    /// --url "경로": AI가 문서의 온라인 사본을 확인할 때 쓰는 명령. 동기화 후 보기용 주소와 규칙을 JSON으로 출력한다.
+    /// 로그인 창, 충돌 창 같은 어떤 창도 띄우지 않는다(실행한 AI가 창을 누를 수 없어 멈추기 때문).
+    /// </summary>
+    private static async Task<int> RunUrlCommandAsync(string[] args, AppConfig config, FileLogger logger)
+    {
+        AiUrlResult result;
+        if (args.Length < 2 || string.IsNullOrWhiteSpace(args[1]))
+        {
+            result = AiUrlResult.Fail(string.Empty, AiUrlError.Failed, "--url 명령에는 파일 경로가 필요합니다.");
+        }
+        else
+        {
+            try
+            {
+                var services = BuildServices(config, logger, new NonInteractiveConflictResolver());
+                services.AuthService.InteractiveAuthAllowed = false;
+                services.GoogleAuthService.InteractiveAuthAllowed = false;
+                result = await services.Orchestrator.ResolveUrlForAiAsync(args[1], CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.Error("--url 처리 중 예외가 발생했습니다.", ex);
+                result = AiUrlResult.Fail(args[1], AiUrlError.Failed, ex.Message);
+            }
+        }
+
+        WriteStdout(AiAccess.ToJson(result));
+        return result.ExitCode;
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetStdHandle(int stdHandle);
+
+    [DllImport("kernel32.dll")]
+    private static extern int GetFileType(IntPtr handle);
+
+    /// <summary>
+    /// BluePage는 WinExe라 콘솔이 없다. 파이프로 출력을 받는 경우(AI 도구, Git Bash)는 물려받은 stdout에 그대로 쓰고,
+    /// 콘솔에서 직접 실행해 stdout이 없으면 부모 콘솔에 붙어서 쓴다. 인코딩은 항상 UTF-8(BOM 없음)이다.
+    /// </summary>
+    private static void WriteStdout(string text)
+    {
+        const int StdOutputHandle = -11;
+        const int FileTypeUnknown = 0;
+        const int AttachParentProcess = -1;
+
+        var handle = GetStdHandle(StdOutputHandle);
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1) || GetFileType(handle) == FileTypeUnknown)
+        {
+            AttachConsole(AttachParentProcess);
+        }
+
+        using var stdout = Console.OpenStandardOutput();
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(text + Environment.NewLine);
+        stdout.Write(bytes, 0, bytes.Length);
+        stdout.Flush();
+    }
+
+    private static AppServices BuildServices(AppConfig config, FileLogger logger, IConflictResolver? conflictResolver = null)
     {
         var catalog = new DocumentTypeCatalog(config);
         var authService = new GraphAuthService(config, logger);
@@ -144,7 +219,7 @@ internal static class Program
         var googleDriveService = new GoogleDriveService(googleAuthService, logger);
         var manifest = UploadManifest.Load();
         ICloudDriveService[] cloudServices = [uploadService, googleDriveService];
-        var syncCoordinator = new SyncCoordinator(cloudServices, manifest, new GuiConflictResolver(), logger);
+        var syncCoordinator = new SyncCoordinator(cloudServices, manifest, conflictResolver ?? new GuiConflictResolver(), logger);
         var orchestrator = new LaunchOrchestrator(catalog, syncCoordinator, manifest, logger, config);
         var registrar = new FileAssociationRegistrar(logger);
         var startupRegistrar = new StartupRegistrar();

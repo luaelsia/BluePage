@@ -38,6 +38,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>appsettings.default.json</Link>
     </None>
+    <EmbeddedResource Include="..\..\resources\AI-GUIDE.md">
+      <LogicalName>BluePage.AI-GUIDE.md</LogicalName>
+      <Link>AI-GUIDE.md</Link>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

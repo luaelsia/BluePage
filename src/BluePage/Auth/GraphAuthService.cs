@@ -27,6 +27,12 @@ public sealed class GraphAuthService
         _logger = logger;
     }
 
+    /// <summary>
+    /// 사일런트 로그인이 안 될 때 로그인 창을 띄워도 되는지. 기본값은 true(기존 동작)이고,
+    /// 창을 띄울 수 없는 --url 흐름에서만 false로 둬서 MicrosoftSignInRequiredException을 던진다.
+    /// </summary>
+    public bool InteractiveAuthAllowed { get; set; } = true;
+
     public async Task<AuthenticationResult> AcquireTokenAsync(CancellationToken cancellationToken = default)
     {
         var pca = await GetOrCreatePcaAsync();
@@ -52,6 +58,11 @@ public sealed class GraphAuthService
         catch (MsalException ex)
         {
             _logger.Warn($"사일런트 로그인 실패({ex.ErrorCode}) — 대화형 로그인으로 전환합니다.");
+        }
+
+        if (!InteractiveAuthAllowed)
+        {
+            throw new MicrosoftSignInRequiredException();
         }
 
         var interactiveResult = await pca.AcquireTokenInteractive(scopes)

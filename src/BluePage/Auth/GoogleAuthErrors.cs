@@ -14,6 +14,17 @@ public sealed class GoogleReauthRequiredException : Exception
     }
 }
 
+/// <summary>
+/// 저장된 Microsoft 계정으로 사일런트 로그인이 안 되는데, 로그인 창을 띄울 수 없는 흐름(--url)이라 멈춘 상태.
+/// </summary>
+public sealed class MicrosoftSignInRequiredException : Exception
+{
+    public MicrosoftSignInRequiredException()
+        : base("Microsoft 로그인이 필요합니다. BluePage 창에서 Microsoft 계정에 다시 로그인해 주세요.")
+    {
+    }
+}
+
 public static class GoogleAuthErrorHelper
 {
     /// <summary>

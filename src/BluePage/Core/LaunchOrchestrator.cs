@@ -146,6 +146,85 @@ public sealed class LaunchOrchestrator
         return 0;
     }
 
+    /// <summary>
+    /// --url 흐름: 창을 하나도 띄우지 않고 동기화한 뒤 보기용 주소를 돌려준다(브라우저는 열지 않는다).
+    /// AI가 실행하는 명령이라 로그인 창, 충돌 창, 잠금 대기 창이 뜨면 아무도 누르지 않은 채 멈추므로,
+    /// 그런 상황은 모두 오류 코드로 끝낸다. SyncCoordinator는 NonInteractiveConflictResolver로 만들어야 한다.
+    /// </summary>
+    public async Task<AiUrlResult> ResolveUrlForAiAsync(string filePath, CancellationToken ct)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        if (!File.Exists(fullPath))
+        {
+            return AiUrlResult.Fail(fullPath, AiUrlError.NotFound, "파일을 찾을 수 없습니다.");
+        }
+
+        if (!_catalog.TryResolve(fullPath, out _))
+        {
+            return AiUrlResult.Fail(fullPath, AiUrlError.Unsupported, $"지원하지 않는 파일 형식입니다: {Path.GetExtension(fullPath)}");
+        }
+
+        var entry = _manifest.Get(fullPath);
+        if (!AiAccess.IsRegistered(entry))
+        {
+            return AiUrlResult.Fail(fullPath, AiUrlError.NotRegistered,
+                "BluePage로 한 번도 연 적 없는 문서입니다. 사용자가 탐색기에서 이 파일을 BluePage로 한 번 열어야 합니다.");
+        }
+
+        try
+        {
+            // 공급자를 넘기지 않으면 매니페스트에 기록된 공급자를 그대로 쓴다(선택 창이 뜨지 않는다).
+            var result = await _syncCoordinator.PrepareForOpenAsync(fullPath, ct);
+            _logger.Info($"AI 주소 요청 처리: {fullPath} (상태: {result.State})");
+
+            if (result.State is SyncState.Skipped or SyncState.Conflict)
+            {
+                return AiUrlResult.Fail(fullPath, AiUrlError.Conflict,
+                    "로컬 파일과 온라인 사본이 모두 바뀌어 동기화하지 않았습니다. 사용자가 BluePage로 문서를 열어 충돌을 직접 처리해야 합니다.");
+            }
+
+            return AiUrlResult.Success(fullPath, _manifest.Get(fullPath)?.Provider ?? entry!.Provider, result.State, result.WebUrl);
+        }
+        catch (Exception ex) when (GraphErrorHelper.IsResourceLocked(ex))
+        {
+            _logger.Warn($"AI 주소 요청: Office Web 편집 잠금으로 동기화하지 못했습니다: {fullPath}");
+            return AiUrlResult.Fail(fullPath, AiUrlError.Locked,
+                "온라인 문서가 웹에서 편집 중이라 잠겨 있습니다. 열려 있는 웹 문서 탭을 모두 닫은 뒤 다시 실행하세요.");
+        }
+        catch (Exception ex) when (FindInChain<GoogleReauthRequiredException>(ex) is not null ||
+                                   FindInChain<MicrosoftSignInRequiredException>(ex) is not null)
+        {
+            _logger.Warn($"AI 주소 요청: 로그인이 필요해 동기화하지 못했습니다: {fullPath}");
+            var authError = (Exception?)FindInChain<GoogleReauthRequiredException>(ex) ?? FindInChain<MicrosoftSignInRequiredException>(ex)!;
+            return AiUrlResult.Fail(fullPath, AiUrlError.AuthRequired, authError.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"AI 주소 요청 처리 실패: {fullPath}", ex);
+            return AiUrlResult.Fail(fullPath, AiUrlError.Failed, $"동기화에 실패했습니다: {ex.Message}");
+        }
+    }
+
+    private static T? FindInChain<T>(Exception? ex) where T : Exception
+    {
+        while (ex is not null)
+        {
+            if (ex is T match)
+            {
+                return match;
+            }
+
+            if (ex is AggregateException aggregate)
+            {
+                return aggregate.Flatten().InnerExceptions.Select(FindInChain<T>).FirstOrDefault(found => found is not null);
+            }
+
+            ex = ex.InnerException;
+        }
+
+        return null;
+    }
+
     public async Task<int> SyncOneAsync(string filePath, CancellationToken ct)
     {
         var fullPath = Path.GetFullPath(filePath);
