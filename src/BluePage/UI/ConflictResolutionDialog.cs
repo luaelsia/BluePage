@@ -25,7 +25,7 @@ public sealed class ConflictResolutionDialog : Form
         TopMost = true;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        Font = new Font("Segoe UI", 9F);
+        Font = new Font("Segoe UI Variable Text", 9.5F);
 
         var fileName = Path.GetFileName(info.LocalFilePath);
         var layout = new TableLayoutPanel
@@ -77,7 +77,7 @@ public sealed class ConflictResolutionDialog : Form
             Margin = new Padding(0)
         };
 
-        var okButton = new Button { Text = "선택한 방식으로 동기화", AutoSize = true };
+        var okButton = new ModernButton { Text = "선택한 방식으로 동기화", AutoSize = true, IsPrimary = true };
         okButton.Click += (_, _) =>
         {
             SelectedChoice = GetSelectedChoice();
@@ -85,7 +85,7 @@ public sealed class ConflictResolutionDialog : Form
             Close();
         };
 
-        var skipButton = new Button { Text = "동기화 안 함", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
+        var skipButton = new ModernButton { Text = "동기화 안 함", AutoSize = true, Margin = new Padding(0, 0, 8, 0) };
         skipButton.Click += (_, _) =>
         {
             SelectedChoice = ConflictResolutionChoice.Skip;

@@ -21,9 +21,9 @@ public sealed class AppConfig
     [JsonPropertyName("sharedPcMode")]
     public bool SharedPcMode { get; set; }
 
-    /// <summary>백그라운드 자동 동기화 주기(초). 1~600(10분) 범위로 GUI에서 조절 가능. 기본값 180(3분).</summary>
+    /// <summary>백그라운드 자동 동기화 주기(초). 1~600(10분) 범위로 GUI에서 조절 가능. 기본값 10초.</summary>
     [JsonPropertyName("backgroundSyncIntervalSeconds")]
-    public int BackgroundSyncIntervalSeconds { get; set; } = 180;
+    public int BackgroundSyncIntervalSeconds { get; set; } = 10;
 
     /// <summary>동기화 중/완료를 화면 우하단에 토스트로 알릴지 여부. GUI 체크박스로 조절 가능.</summary>
     [JsonPropertyName("showSyncToast")]

@@ -20,9 +20,7 @@ public sealed class AppMessageDialog : Form
         StartPosition = FormStartPosition.CenterScreen;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        MinimumSize = new Size(340, 0);
-        MaximumSize = new Size(560, 0);
-        Font = new Font("Segoe UI", 9F);
+        Font = new Font("Segoe UI Variable Text", 9.5F);
 
         var layout = new TableLayoutPanel
         {
@@ -70,11 +68,11 @@ public sealed class AppMessageDialog : Form
         layout.Controls.Add(buttonPanel, 0, 1);
 
         // 보조 버튼이 있으면 [보조] [확인] 순서로 두고, 보조 버튼은 DialogResult.Yes를 돌려준다.
-        var okButton = new Button { Text = "확인", AutoSize = true, DialogResult = DialogResult.OK };
+        var okButton = new ModernButton { Text = "확인", AutoSize = true, DialogResult = DialogResult.OK, IsPrimary = true };
         buttonPanel.Controls.Add(okButton);
         if (secondaryText is not null)
         {
-            var secondaryButton = new Button
+            var secondaryButton = new ModernButton
             {
                 Text = secondaryText,
                 AutoSize = true,
