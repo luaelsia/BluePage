@@ -9,6 +9,7 @@ using Microsoft365OfficeWebLauncher.GoogleDrive;
 using Microsoft365OfficeWebLauncher.Logging;
 using Microsoft365OfficeWebLauncher.OneDrive;
 using Microsoft365OfficeWebLauncher.Registry;
+using Microsoft365OfficeWebLauncher.Update;
 
 namespace Microsoft365OfficeWebLauncher.UI;
 
@@ -55,6 +56,15 @@ public sealed class LauncherForm : Form
     private RegisteredWaitHandle? _showWindowRegisteredWait;
     private SyncActivityToast _activityToast = null!;
     private ModernTabControl _mainTabs = null!;
+    private ToolStripMenuItem _trayUpdateItem = null!;
+    private ToolStripSeparator _trayUpdateSeparator = null!;
+    private Button _checkUpdateButton = null!;
+    private Label _updateStatusLabel = null!;
+    private CheckBox _checkUpdatesCheckBox = null!;
+    private System.Windows.Forms.Timer _updateTimer = null!;
+    private UpdateInfo? _availableUpdate;
+    private string? _balloonShownForVersion;
+    private bool _updateDialogOpen;
 
     private const int MinSyncIntervalSeconds = 1;
     private const int MaxSyncIntervalSeconds = 600;
@@ -95,6 +105,7 @@ public sealed class LauncherForm : Form
         BuildTrayIcon();
         BuildActivityToast();
         BuildBackgroundSyncTimer();
+        BuildUpdateTimer();
         BuildSingleInstanceListener();
 
         ApplyTheme();
@@ -207,6 +218,8 @@ public sealed class LauncherForm : Form
             Tag = ThemeApplier.SecondaryTag,
             Margin = new Padding(0, 8, 0, 0)
         });
+        layout.Controls.Add(BuildSectionTitle("업데이트", 18));
+        layout.Controls.Add(BuildUpdateRow());
         return layout;
     }
 
@@ -668,6 +681,192 @@ public sealed class LauncherForm : Form
         return bar;
     }
 
+    private Control BuildUpdateRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            Margin = new Padding(0)
+        };
+
+        var row = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+        row.Controls.Add(new Label
+        {
+            Text = $"현재 버전 {AppBrand.Version}",
+            AutoSize = true,
+            Margin = new Padding(0, 9, 12, 0)
+        });
+        _checkUpdateButton = CreateModernButton("업데이트 확인", 120);
+        _checkUpdateButton.Margin = new Padding(0, 0, 12, 0);
+        _checkUpdateButton.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
+        row.Controls.Add(_checkUpdateButton);
+        _updateStatusLabel = new Label
+        {
+            Text = string.Empty,
+            AutoSize = true,
+            Tag = ThemeApplier.SecondaryTag,
+            Margin = new Padding(0, 9, 0, 0)
+        };
+        row.Controls.Add(_updateStatusLabel);
+        panel.Controls.Add(row);
+
+        _checkUpdatesCheckBox = new CheckBox
+        {
+            Text = "새 버전 자동 확인(시작할 때와 하루에 한 번)",
+            AutoSize = true,
+            Checked = _config.CheckForUpdates,
+            Margin = new Padding(0, 8, 0, 2)
+        };
+        _checkUpdatesCheckBox.CheckedChanged += (_, _) =>
+        {
+            _config.CheckForUpdates = _checkUpdatesCheckBox.Checked;
+            ConfigLoader.Save(_config);
+            _logger.Info($"업데이트 자동 확인 설정 변경: {_checkUpdatesCheckBox.Checked}");
+        };
+        panel.Controls.Add(_checkUpdatesCheckBox);
+
+        return panel;
+    }
+
+    /// <summary>시작 30초 뒤 한 번, 그 뒤로 24시간마다 새 버전을 확인한다(자동 확인을 끄면 건너뜀).</summary>
+    private void BuildUpdateTimer()
+    {
+        _updateTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;
+            await CheckForUpdatesAsync(manual: false);
+        };
+        _updateTimer.Start();
+    }
+
+    /// <summary>
+    /// manual이면 [업데이트 확인] 버튼에서 부른 것: 결과를 상태 문구로 보여 주고, 새 버전이면 바로 업데이트 창을 연다.
+    /// 자동 확인은 실패해도 조용히 넘어가고, 건너뛰기로 한 버전은 알리지 않는다.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (!manual && !_config.CheckForUpdates)
+        {
+            return;
+        }
+
+        _checkUpdateButton.Enabled = false;
+        if (manual)
+        {
+            _updateStatusLabel.Text = "확인하는 중...";
+        }
+
+        try
+        {
+            var update = await UpdateChecker.GetNewerReleaseAsync(CancellationToken.None);
+            if (update is null)
+            {
+                _availableUpdate = null;
+                _updateStatusLabel.Text = "최신 버전입니다.";
+                SetTrayUpdateItem(null);
+                return;
+            }
+
+            _availableUpdate = update;
+            var skipped = string.Equals(_config.SkippedUpdateVersion, update.DisplayVersion, StringComparison.OrdinalIgnoreCase);
+            _updateStatusLabel.Text = skipped && !manual
+                ? $"새 버전 {update.DisplayVersion} (건너뛰기로 설정함)"
+                : $"새 버전 {update.DisplayVersion}을(를) 설치할 수 있습니다.";
+            _logger.Info($"새 버전 발견: {update.DisplayVersion} (현재 {AppBrand.Version})");
+
+            if (manual)
+            {
+                SetTrayUpdateItem(update);
+                ShowUpdateDialog();
+                return;
+            }
+
+            if (skipped)
+            {
+                SetTrayUpdateItem(null);
+                return;
+            }
+
+            SetTrayUpdateItem(update);
+            if (_balloonShownForVersion != update.DisplayVersion)
+            {
+                _balloonShownForVersion = update.DisplayVersion;
+                _trayIcon.ShowBalloonTip(
+                    10_000,
+                    $"{AppBrand.Name} 업데이트",
+                    $"새 버전 {update.DisplayVersion}을(를) 설치할 수 있습니다. 여기를 누르면 업데이트 창이 열립니다.",
+                    ToolTipIcon.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"업데이트 확인 실패: {ex.Message}");
+            if (manual)
+            {
+                _updateStatusLabel.Text = "확인하지 못했습니다. 인터넷 연결을 확인해 주세요.";
+            }
+        }
+        finally
+        {
+            _checkUpdateButton.Enabled = true;
+        }
+    }
+
+    private void SetTrayUpdateItem(UpdateInfo? update)
+    {
+        _trayUpdateItem.Visible = update is not null;
+        _trayUpdateSeparator.Visible = update is not null;
+        if (update is not null)
+        {
+            _trayUpdateItem.Text = $"업데이트 설치 (v{update.DisplayVersion})…";
+        }
+    }
+
+    private void ShowUpdateDialog()
+    {
+        if (_availableUpdate is not { } update || _updateDialogOpen)
+        {
+            return;
+        }
+
+        _updateDialogOpen = true;
+        try
+        {
+            using var dialog = new UpdateDialog(update);
+            var result = Visible ? dialog.ShowDialog(this) : dialog.ShowDialog();
+
+            if (result == DialogResult.Ignore)
+            {
+                _config.SkippedUpdateVersion = update.DisplayVersion;
+                ConfigLoader.Save(_config);
+                _logger.Info($"업데이트 건너뛰기: {update.DisplayVersion}");
+                _updateStatusLabel.Text = $"새 버전 {update.DisplayVersion} (건너뛰기로 설정함)";
+                SetTrayUpdateItem(null);
+                return;
+            }
+
+            if (result == DialogResult.OK && dialog.InstallerPath is { } installerPath)
+            {
+                _logger.Info($"업데이트 설치 시작: {update.DisplayVersion} ({installerPath})");
+                UpdateChecker.LaunchSilentInstall(installerPath);
+                // 설치 파일이 실행 중인 Blue Page를 끝내고 설치 후 다시 실행한다. 여기서는 먼저 스스로 종료한다.
+                ExitApplication();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("업데이트 설치 시작 실패", ex);
+            AppMessageDialog.Show($"업데이트를 시작하지 못했습니다.\n\n{ex.Message}", AppBrand.Name, AppMessageKind.Warning);
+        }
+        finally
+        {
+            _updateDialogOpen = false;
+        }
+    }
+
     private Control BuildBrandFooter()
     {
         var footer = new FlowLayoutPanel
@@ -718,6 +917,13 @@ public sealed class LauncherForm : Form
         var menu = new ContextMenuStrip();
 
         // 트레이에는 창을 열지 않고 바로 쓰는 동작만 둔다. 계정, 파일 연결, 설정 항목은 창에서 다룬다.
+        // 업데이트 항목은 새 버전을 찾았을 때만 맨 위에 보인다.
+        _trayUpdateItem = new ToolStripMenuItem("업데이트 설치") { Visible = false, Font = new Font(menu.Font, FontStyle.Bold) };
+        _trayUpdateItem.Click += (_, _) => ShowUpdateDialog();
+        menu.Items.Add(_trayUpdateItem);
+        _trayUpdateSeparator = new ToolStripSeparator { Visible = false };
+        menu.Items.Add(_trayUpdateSeparator);
+
         menu.Items.Add("열기", null, (_, _) => ShowFromTray());
         menu.Items.Add(new ToolStripSeparator());
 
@@ -737,6 +943,8 @@ public sealed class LauncherForm : Form
             ContextMenuStrip = menu
         };
         _trayIcon.DoubleClick += (_, _) => ShowFromTray();
+        // 트레이 풍선은 업데이트 알림에만 쓴다.
+        _trayIcon.BalloonTipClicked += (_, _) => ShowUpdateDialog();
     }
 
     /// <summary>
@@ -877,6 +1085,7 @@ public sealed class LauncherForm : Form
         {
             _trayIcon?.Dispose();
             _backgroundSyncTimer?.Dispose();
+            _updateTimer?.Dispose();
             _showWindowRegisteredWait?.Unregister(null);
             _showWindowEvent?.Dispose();
             _activityToast?.Dispose();

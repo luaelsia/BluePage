@@ -33,6 +33,14 @@ public sealed class AppConfig
     [JsonPropertyName("theme")]
     public string Theme { get; set; } = "System";
 
+    /// <summary>GitHub Releases에서 새 버전을 자동으로 확인할지 여부. GUI 체크박스로 조절 가능.</summary>
+    [JsonPropertyName("checkForUpdates")]
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>사용자가 "이 버전 건너뛰기"를 고른 버전(예: "1.2.0"). 자동 확인에서만 알림을 생략한다.</summary>
+    [JsonPropertyName("skippedUpdateVersion")]
+    public string SkippedUpdateVersion { get; set; } = string.Empty;
+
     [JsonPropertyName("appFolderDisplayName")]
     public string AppFolderDisplayName { get; set; } = "Blue Page";
 
